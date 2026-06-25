@@ -2,6 +2,11 @@
 #
 # install-llama.sh — Fully automatic llama.cpp installer for macOS
 #
+# Created because llama.cpp releases don't include an installer —
+# every update requires manually downloading, extracting, copying
+# binaries, fixing Gatekeeper, and reconfiguring the shell.
+# This script automates the entire workflow.
+#
 # Place a release archive (llama-bXXXX.zip / .tar.gz) or an extracted
 # llama-bXXXX folder in the SAME directory as this script, then:
 #

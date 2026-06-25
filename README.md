@@ -2,6 +2,14 @@
 
 A fully automated installer, updater, and manager for [llama.cpp](https://github.com/ggml-org/llama.cpp) on macOS (Apple Silicon & Intel).
 
+### Why this exists
+
+llama.cpp releases ship as bare tarballs — no installer, no PATH setup, no
+Gatekeeper handling, no auto-start, no easy update path. Every new build meant
+the same manual ritual: download, extract, copy files, fix macOS security warnings,
+update the shell RC, restart the server. This script wraps the entire process
+into a single command so you never think about it again.
+
 ## Features
 
 - **One-command setup** — place a release archive alongside the script, run it
