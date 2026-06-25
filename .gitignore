@@ -1,0 +1,16 @@
+# llama.cpp bundle archives (user-provided)
+llama-b*.zip
+llama-b*.tar.gz
+llama-b*.tgz
+llama-b*.tar.xz
+*.tar.gz
+*.zip
+
+# Extraction temp dirs
+.llama-extract-*
+
+# macOS
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
