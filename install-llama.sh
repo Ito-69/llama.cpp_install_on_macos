@@ -651,7 +651,7 @@ find_and_prepare_bundle() {
   # where --download-update already ran or the user placed an archive manually)
   if [[ "$MODE_UPDATE" -eq 0 ]]; then
     info "No local bundle found — checking GitHub for latest release…"
-    download_github_update || die "No local bundle and GitHub download failed.
+    download_github_update >&2 || die "No local bundle and GitHub download failed.
 
 Place an archive manually from https://github.com/${GITHUB_REPO}/releases"
     # Retry with the newly downloaded archive
