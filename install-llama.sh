@@ -848,6 +848,32 @@ print_network_info() {
     echo -e "  ${GREEN}LAN:${NC}       http://${ip}:${PORT}/v1"
     echo -e "  ${GREEN}Health:${NC}    http://${ip}:${PORT}/health"
   fi
+  print_test_instructions "$ip"
+}
+
+print_test_instructions() {
+  local ip="${1:-127.0.0.1}"
+  local base_url="http://${ip}:${PORT}"
+  echo ""
+  echo -e "${BLUE}══════════════════════════════════════════════════════════${NC}"
+  echo -e "${BLUE}  How to test${NC}"
+  echo -e "${BLUE}══════════════════════════════════════════════════════════${NC}"
+  echo ""
+  echo -e "  ${GREEN}Browser — health check:${NC}"
+  echo -e "    ${base_url}/health"
+  echo ""
+  echo -e "  ${GREEN}Terminal — quick test:${NC}"
+  echo "    curl ${base_url}/v1/chat/completions \\"
+  echo "      -H \"Content-Type: application/json\" \\"
+  echo "      -d '{"
+  echo '        "model": "llama",'
+  echo '        "messages": [{"role": "user", "content": "Hello!"}]'
+  echo "      }'"
+  echo ""
+  echo -e "  ${GREEN}Chat frontends (point to ${base_url}/v1):${NC}"
+  echo -e "    • Open WebUI     — https://openwebui.com"
+  echo -e "    • Chatbox        — https://chatboxai.app"
+  echo -e "    • Continue.dev   — https://continue.dev (VS Code)"
   echo ""
 }
 
@@ -1159,12 +1185,14 @@ main() {
     if model_is_valid; then
       start_server
     else
-      die "No valid model. Run: ./install-llama.sh --model qwen14"
+      die "No valid model. Run: ./install-llama.sh --model qwen7"
     fi
   else
     info "Start manually:"
     echo "  llama-server -m \"${MODEL_PATH}\" -c ${CONTEXT} --port ${PORT} --host ${HOST}"
     info "Or auto-start: ./install-llama.sh --install-agent"
+    echo ""
+    print_test_instructions "127.0.0.1"
   fi
 }
 
