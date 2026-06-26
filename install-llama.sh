@@ -224,10 +224,13 @@ detect_shell_rc_files() {
 
 # ── huggingface-cli discovery ─────────────────────────────────────────────────
 find_hf_cli() {
-  local candidate
+  local candidate python_user_base
+  python_user_base="$(python3 -m site --user-base 2>/dev/null || true)"
   for candidate in \
     "$(command -v hf 2>/dev/null || true)" \
     "$(command -v huggingface-cli 2>/dev/null || true)" \
+    "${python_user_base}/bin/hf" \
+    "${python_user_base}/bin/huggingface-cli" \
     "${HOME}/conda/envs/exo/bin/hf" \
     "${HOME}/miniconda3/bin/hf" \
     "${HOME}/anaconda3/bin/hf" \
