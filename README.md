@@ -47,7 +47,30 @@ The script will:
 4. Fix Gatekeeper (quarantine + ad-hoc codesign)
 5. Configure your shell RC file
 6. Download the default model (Qwen2.5 7B Q4_K_M, ~4.7 GB)
-7. Start `llama-server` with an OpenAI-compatible API on port 8080
+7. Start `llama-server` in background with built-in WebUI on port 8080
+
+### How to use
+
+Once installed and running, open the **built-in WebUI** in your browser for a full chat interface:
+
+| URL | What it is |
+|-----|------------|
+| `http://127.0.0.1:8080` | WebUI — chat with the AI agent |
+| `http://127.0.0.1:8080/health` | Health check endpoint |
+| `http://127.0.0.1:8080/v1` | OpenAI-compatible API |
+
+Quick test via terminal:
+
+```bash
+curl http://127.0.0.1:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "llama",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+The WebUI supports chat, PDF/image attachments, multiple conversations, JSON schema output, and more — all fully local.
 
 ## Usage Reference
 
@@ -138,6 +161,9 @@ Saved to `~/.config/llama/server.conf`.
 # Daily check
 ./install-llama.sh --status
 
+# Open WebUI in browser
+open http://127.0.0.1:8080
+
 # First-time headless server setup
 ./install-llama.sh --model qwen14 --install-agent --skip-server
 
@@ -160,6 +186,9 @@ pkill -9 llama-server
 ```bash
 source ~/.zshrc
 
+# Open the WebUI in your browser
+open http://127.0.0.1:8080
+
 # Check server health
 curl http://127.0.0.1:8080/health
 
@@ -170,7 +199,7 @@ lsof -i :8080
 pkill -9 llama-server
 
 # Start server manually in terminal
-llama-server -m ~/models/Qwen2.5-14B-Instruct-Q4_K_M.gguf \
+llama-server -m ~/models/Qwen2.5-7B-Instruct-Q4_K_M.gguf \
   -c 8192 --port 8080 --host 0.0.0.0
 
 # Follow LaunchAgent logs
@@ -184,33 +213,37 @@ tail -f ~/Library/Logs/llama-server.err.log
 |------|---------|
 | `~/.local/bin/` | llama.cpp binaries (`llama-server`, `llama-cli`, …) |
 | `~/.local/lib/` | Shared libraries (`libllama*.dylib`, `libggml*.dylib`) |
+| `~/.local/bin/llama-server-start.sh` | LaunchAgent start script |
 | `~/models/` | GGUF model files |
 | `~/.config/llama/server.conf` | Server configuration |
 | `~/Library/LaunchAgents/com.llama.cpp.server.plist` | LaunchAgent (if installed) |
-| `~/Library/Logs/llama-server.log` | Server stdout |
-| `~/Library/Logs/llama-server.err.log` | Server stderr |
+| `~/Library/Logs/llama-server.log` | Server stdout (background mode) |
+| `~/Library/Logs/llama-server.err.log` | Server stderr (background mode) |
 
 ## Uninstallation
 
-To fully remove llama.cpp:
+To fully remove llama.cpp, run these commands in order:
 
 ```bash
-# Stop and remove LaunchAgent
+# 1. Stop and remove LaunchAgent (if installed)
 ./install-llama.sh --uninstall-agent
 
-# Remove binaries and libraries
+# 2. Remove binaries and start script
 rm -rf ~/.local/bin/llama-* ~/.local/bin/rpc-server
 rm -f ~/.local/bin/llama-server-start.sh
-rm -rf ~/.local/lib/libggml*.dylib ~/.local/lib/libllama*.dylib ~/.local/lib/libmtmd*.dylib
 
-# Remove configuration
+# 3. Remove shared libraries
+rm -f ~/.local/lib/libggml*.dylib ~/.local/lib/libllama*.dylib ~/.local/lib/libmtmd*.dylib
+
+# 4. Remove configuration
 rm -rf ~/.config/llama
 
-# Remove models (optional)
+# 5. Remove model files (optional — keeps ~4–8 GB)
 rm -rf ~/models/*.gguf
 
-# Remove shell RC additions
-# Edit ~/.zshrc (or ~/.bash_profile) and remove the llama.cpp sections
+# 6. Remove shell RC additions
+# Edit ~/.zshrc (or ~/.bash_profile) and delete the
+# "# llama.cpp (install-llama.sh)" section
 ```
 
 ## Requirements
