@@ -846,10 +846,11 @@ print_network_info() {
   done
   echo ""
   ok "Server listening on all interfaces (local network)"
-  echo -e "  ${GREEN}Local:${NC}   http://127.0.0.1:${PORT}/v1"
+  echo -e "  ${GREEN}WebUI:${NC}    http://127.0.0.1:${PORT}"
+  echo -e "  ${GREEN}API:${NC}      http://127.0.0.1:${PORT}/v1"
   if [[ -n "$ip" ]]; then
-    echo -e "  ${GREEN}LAN:${NC}       http://${ip}:${PORT}/v1"
-    echo -e "  ${GREEN}Health:${NC}    http://${ip}:${PORT}/health"
+    echo -e "  ${GREEN}LAN WebUI:${NC} http://${ip}:${PORT}"
+    echo -e "  ${GREEN}LAN API:${NC}   http://${ip}:${PORT}/v1"
   fi
   print_test_instructions "$ip"
 }
@@ -859,11 +860,17 @@ print_test_instructions() {
   local base_url="http://${ip}:${PORT}"
   echo ""
   echo -e "${BLUE}══════════════════════════════════════════════════════════${NC}"
-  echo -e "${BLUE}  How to test${NC}"
+  echo -e "${BLUE}  How to use${NC}"
   echo -e "${BLUE}══════════════════════════════════════════════════════════${NC}"
+  echo ""
+  echo -e "  ${GREEN}Browser — WebUI (chat interface):${NC}"
+  echo -e "    ${base_url}"
   echo ""
   echo -e "  ${GREEN}Browser — health check:${NC}"
   echo -e "    ${base_url}/health"
+  echo ""
+  echo -e "  ${GREEN}API (OpenAI-compatible):${NC}"
+  echo -e "    ${base_url}/v1"
   echo ""
   echo -e "  ${GREEN}Terminal — quick test:${NC}"
   echo "    curl ${base_url}/v1/chat/completions \\"
@@ -873,10 +880,8 @@ print_test_instructions() {
   echo '        "messages": [{"role": "user", "content": "Hello!"}]'
   echo "      }'"
   echo ""
-  echo -e "  ${GREEN}Chat frontends (point to ${base_url}/v1):${NC}"
-  echo -e "    • Open WebUI     — https://openwebui.com"
-  echo -e "    • Chatbox        — https://chatboxai.app"
-  echo -e "    • Continue.dev   — https://continue.dev (VS Code)"
+  echo -e "  ${GREEN}Tip:${NC} The WebUI supports chat, PDF/images, multiple"
+  echo -e "  conversations, JSON output, and more — all local, no setup."
   echo ""
 }
 
@@ -957,8 +962,9 @@ show_status() {
   echo -e "  ${GREEN}Server:${NC}     ${server_status}"
 
   echo -e "  ${GREEN}Port:${NC}       ${PORT}"
+  echo -e "  ${GREEN}WebUI:${NC}      http://127.0.0.1:${PORT}"
   echo -e "  ${GREEN}API:${NC}        http://127.0.0.1:${PORT}/v1"
-  [[ -n "$ip" ]] && echo -e "  ${GREEN}LAN:${NC}        http://${ip}:${PORT}/v1"
+  [[ -n "$ip" ]] && echo -e "  ${GREEN}LAN:${NC}        http://${ip}:${PORT}"
 
   local la_state
   la_state="$(launch_agent_state)"
