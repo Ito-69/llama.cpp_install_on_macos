@@ -1097,14 +1097,28 @@ start_server() {
     sleep 1
   fi
 
-  info "Starting llama-server (Ctrl+C to stop) …"
+  info "Starting llama-server in background …"
+  mkdir -p "$(dirname "${LOG_OUT}")"
   print_network_info
 
-  exec "${LOCAL_BIN}/llama-server" \
+  nohup "${LOCAL_BIN}/llama-server" \
     -m "$MODEL_PATH" \
     -c "$CONTEXT" \
     --port "$PORT" \
-    --host "$HOST"
+    --host "$HOST" \
+    > "${LOG_OUT}" 2> "${LOG_ERR}" &
+
+  local pid=$!
+  disown "$pid" 2>/dev/null || true
+
+  sleep 2
+  if server_is_running; then
+    ok "llama-server started (PID $(pgrep -x llama-server | head -1))"
+    info "Stdout: ${LOG_OUT}"
+    info "Errors: ${LOG_ERR}"
+  else
+    warn "Server may not have started. Check: tail -50 ${LOG_ERR}"
+  fi
 }
 
 # ── MAIN ───────────────────────────────────────────────────────────────────────
