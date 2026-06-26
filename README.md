@@ -14,7 +14,7 @@ into a single command so you never think about it again.
 
 - **One-command setup** — auto-downloads the latest build from GitHub, no manual download needed
 - **Automatic architecture detection** — picks the right binaries for your CPU (arm64 / x86_64)
-- **Model downloads** — built-in presets (Qwen2.5 14B, 7B, Llama 3.1 8B, Qwen2.5 32B) via Hugging Face
+- **Model downloads** — built-in presets (Qwen2.5 7B, 14B, Llama 3.1 8B, Qwen2.5 32B) via Hugging Face
 - **Auto-start at login** — optional LaunchAgent for background server operation
 - **Effortless updates** — `--check-update`, `--download-update`, `--upgrade` from GitHub releases
 - **Gatekeeper handling** — removes quarantine flags and ad-hoc codesigns to avoid macOS warnings
@@ -46,7 +46,7 @@ The script will:
 3. Copy binaries to `~/.local/bin/` and libraries to `~/.local/lib/`
 4. Fix Gatekeeper (quarantine + ad-hoc codesign)
 5. Configure your shell RC file
-6. Download the default model (Qwen2.5 14B Q4_K_M, ~8.4 GB)
+6. Download the default model (Qwen2.5 7B Q4_K_M, ~4.7 GB)
 7. Start `llama-server` with an OpenAI-compatible API on port 8080
 
 ## Usage Reference
@@ -75,8 +75,8 @@ The script will:
 
 | Command | Description |
 |---------|-------------|
-| `--model qwen14` | Qwen2.5 14B Q4_K_M (~8.4 GB) — balanced (default) |
-| `--model qwen7` | Qwen2.5 7B Q4_K_M (~4.7 GB) — faster |
+| `--model qwen7` | Qwen2.5 7B Q4_K_M (~4.7 GB) — faster (default) |
+| `--model qwen14` | Qwen2.5 14B Q4_K_M (~8.4 GB) — balanced |
 | `--model llama8` | Llama 3.1 8B Q4_K_M (~5 GB) |
 | `--model qwen32` | Qwen2.5 32B Q4_K_M (~19 GB) — best quality (24 GB+ RAM) |
 | `--model-repo REPO --model-file FILE` | Custom Hugging Face repo and GGUF file |

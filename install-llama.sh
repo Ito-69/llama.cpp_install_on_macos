@@ -93,10 +93,10 @@ UNINSTALL_AGENT=0
 RUN_MAIN=1
 MODEL_PRESET=""
 
-MODEL_REPO="bartowski/Qwen2.5-14B-Instruct-GGUF"
-MODEL_FILE="Qwen2.5-14B-Instruct-Q4_K_M.gguf"
+MODEL_REPO="bartowski/Qwen2.5-7B-Instruct-GGUF"
+MODEL_FILE="Qwen2.5-7B-Instruct-Q4_K_M.gguf"
 MODEL_PATH="${MODELS_DIR}/${MODEL_FILE}"
-MODEL_LABEL="Qwen2.5 14B Q4_K_M"
+MODEL_LABEL="Qwen2.5 7B Q4_K_M (~4.7 GB)"
 
 # ── Argument parsing ───────────────────────────────────────────────────────────
 usage() {
