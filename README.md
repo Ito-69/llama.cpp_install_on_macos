@@ -12,7 +12,7 @@ into a single command so you never think about it again.
 
 ## Features
 
-- **One-command setup** — place a release archive alongside the script, run it
+- **One-command setup** — auto-downloads the latest build from GitHub, no manual download needed
 - **Automatic architecture detection** — picks the right binaries for your CPU (arm64 / x86_64)
 - **Model downloads** — built-in presets (Qwen2.5 14B, 7B, Llama 3.1 8B, Qwen2.5 32B) via Hugging Face
 - **Auto-start at login** — optional LaunchAgent for background server operation
@@ -26,28 +26,22 @@ into a single command so you never think about it again.
 ### Prerequisites
 
 - macOS (Apple Silicon or Intel)
-- `huggingface-cli` for model downloads: `pip install huggingface_hub` (or use conda)
+- `hf` (or legacy `huggingface-cli`) for model downloads: `pip3 install huggingface_hub` (or use conda)
 - Xcode Command Line Tools: `xcode-select --install`
 
-### 1. Download llama.cpp
-
-Grab the latest macOS build from the [llama.cpp releases page](https://github.com/ggml-org/llama.cpp/releases).
-
-Choose the archive that matches your Mac:
-- **Apple Silicon (M1–M4)**: `llama-bXXXX-bin-macos-arm64.tar.gz`
-- **Intel Mac**: `llama-bXXXX-bin-macos-x64.tar.gz`
-
-Place it in the same directory as `install-llama.sh`.
-
-### 2. Run the installer
+### Run the installer
 
 ```bash
 chmod +x install-llama.sh
 ./install-llama.sh
 ```
 
+The script automatically downloads the latest macOS build from GitHub — no manual download needed. Optionally, you can also place a pre-downloaded release archive from the [llama.cpp releases page](https://github.com/ggml-org/llama.cpp/releases) in the same directory:
+- **Apple Silicon (M1–M4)**: `llama-bXXXX-bin-macos-arm64.tar.gz`
+- **Intel Mac**: `llama-bXXXX-bin-macos-x64.tar.gz`
+
 The script will:
-1. Find and extract the llama bundle
+1. Auto-download (or find locally) and extract the llama bundle
 2. Verify architecture compatibility
 3. Copy binaries to `~/.local/bin/` and libraries to `~/.local/lib/`
 4. Fix Gatekeeper (quarantine + ad-hoc codesign)
@@ -224,7 +218,7 @@ rm -rf ~/models/*.gguf
 - macOS 12+ (Monterey or newer)
 - Bash 3.2+ (macOS ships with 3.2, fully compatible)
 - `curl`, `unzip`, `codesign` (all present on macOS by default or via Xcode CLT)
-- `huggingface-cli` for model downloads (`pip install huggingface_hub`)
+- `hf` (or legacy `huggingface-cli`) for model downloads (`pip3 install huggingface_hub`)
 
 ## License
 

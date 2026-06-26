@@ -7,8 +7,9 @@
 # binaries, fixing Gatekeeper, and reconfiguring the shell.
 # This script automates the entire workflow.
 #
-# Place a release archive (llama-bXXXX.zip / .tar.gz) or an extracted
-# llama-bXXXX folder in the SAME directory as this script, then:
+# The script auto-downloads the latest macOS build from GitHub if no bundle
+# is found locally. You can also place a release archive (llama-bXXXX.zip
+# / .tar.gz) or an extracted llama-bXXXX folder manually, then:
 #
 #   chmod +x install-llama.sh
 #   ./install-llama.sh
@@ -225,7 +226,13 @@ detect_shell_rc_files() {
 find_hf_cli() {
   local candidate
   for candidate in \
+    "$(command -v hf 2>/dev/null || true)" \
     "$(command -v huggingface-cli 2>/dev/null || true)" \
+    "${HOME}/conda/envs/exo/bin/hf" \
+    "${HOME}/miniconda3/bin/hf" \
+    "${HOME}/anaconda3/bin/hf" \
+    "/opt/homebrew/bin/hf" \
+    "/usr/local/bin/hf" \
     "${HOME}/conda/envs/exo/bin/huggingface-cli" \
     "${HOME}/miniconda3/bin/huggingface-cli" \
     "${HOME}/anaconda3/bin/huggingface-cli" \
@@ -344,7 +351,7 @@ fi
 
 if [[ "$SKIP_DOWNLOAD" -eq 0 && "$RUN_MAIN" -eq 1 ]]; then
   HF_CLI="$(find_hf_cli || true)"
-  [[ -n "$HF_CLI" ]] || die "huggingface-cli not found. Install: pip install huggingface_hub"
+  [[ -n "$HF_CLI" ]] || die "hf / huggingface-cli not found. Install: pip3 install huggingface_hub"
 fi
 
 # ── Finding / extracting the llama bundle ──────────────────────────────────────
@@ -640,11 +647,29 @@ find_and_prepare_bundle() {
     return 0
   fi
 
+  # No bundle found — auto-download from GitHub (skip in --update mode,
+  # where --download-update already ran or the user placed an archive manually)
+  if [[ "$MODE_UPDATE" -eq 0 ]]; then
+    info "No local bundle found — checking GitHub for latest release…"
+    download_github_update || die "No local bundle and GitHub download failed.
+
+Place an archive manually from https://github.com/${GITHUB_REPO}/releases"
+    # Retry with the newly downloaded archive
+    archive="$(select_newest_archive || true)"
+    if [[ -n "$archive" ]]; then
+      info "Extracting downloaded bundle …"
+      bundle_dir="$(extract_bundle_from_archive "$archive")"
+      echo "$bundle_dir"
+      return 0
+    fi
+  fi
+
   die "No llama bundle found in ${SCRIPT_DIR}.
 Place one of the following in the same directory as this script:
   • llama-b9159/                    (extracted folder)
   • llama-b9159-bin-macos-arm64.tar.gz
-  • llama-b9159.zip"
+  • llama-b9159.zip
+Or run with --download-update to fetch the latest from GitHub."
 }
 
 # ── Stop running server ────────────────────────────────────────────────────────
