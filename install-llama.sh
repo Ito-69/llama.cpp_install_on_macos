@@ -1121,6 +1121,24 @@ start_server() {
   fi
 }
 
+# ── Uninstall info ──────────────────────────────────────────────────────────────
+print_uninstall_info() {
+  echo -e "${BLUE}══════════════════════════════════════════════════════════${NC}"
+  echo -e "${BLUE}  Uninstall — remove llama.cpp completely${NC}"
+  echo -e "${BLUE}══════════════════════════════════════════════════════════${NC}"
+  echo ""
+  echo "  ./install-llama.sh --uninstall-agent"
+  echo "  rm -rf ${LOCAL_BIN}/llama-* ${LOCAL_BIN}/rpc-server"
+  echo "  rm -rf ${LOCAL_BIN}/llama-server-start.sh"
+  echo "  rm -rf ${LOCAL_LIB}/libggml*.dylib ${LOCAL_LIB}/libllama*.dylib ${LOCAL_LIB}/libmtmd*.dylib"
+  echo "  rm -rf ${CONFIG_DIR}"
+  echo "  rm -rf ${MODELS_DIR}/*.gguf"
+  echo ""
+  echo -e "  ${YELLOW}Shell RC file:${NC} edit ~/.zshrc or ~/.bash_profile"
+  echo -e "    and remove the ${YELLOW}# llama.cpp (install-llama.sh)${NC} section"
+  echo ""
+}
+
 # ── MAIN ───────────────────────────────────────────────────────────────────────
 main() {
   local bundle sys_arch old_ver new_ver bundle_name
@@ -1198,6 +1216,8 @@ main() {
   echo ""
 
   save_config
+  echo ""
+  print_uninstall_info
 
   if [[ "$INSTALL_AGENT" -eq 1 ]]; then
     install_launch_agent
