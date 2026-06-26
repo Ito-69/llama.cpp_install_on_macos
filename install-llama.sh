@@ -816,9 +816,16 @@ download_model() {
   info "Downloading model: ${MODEL_REPO} / ${MODEL_FILE}"
   warn "This is ~8+ GB — may take a while…"
 
-  "$HF_CLI" download "$MODEL_REPO" "$MODEL_FILE" \
-    --local-dir "$MODELS_DIR" \
-    --local-dir-use-symlinks False
+  local hf_cli_name
+  hf_cli_name="$(basename "$HF_CLI")"
+  if [[ "$hf_cli_name" == "hf" ]]; then
+    "$HF_CLI" download "$MODEL_REPO" "$MODEL_FILE" \
+      --local-dir "$MODELS_DIR"
+  else
+    "$HF_CLI" download "$MODEL_REPO" "$MODEL_FILE" \
+      --local-dir "$MODELS_DIR" \
+      --local-dir-use-symlinks False
+  fi
 
   if model_is_valid; then
     ok "Model downloaded: ${MODEL_PATH}"
