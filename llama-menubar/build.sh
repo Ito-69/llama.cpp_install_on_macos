@@ -3,12 +3,21 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 APP_NAME="llama-menubar"
-BUILD_DIR=".build/release"
+BUILD_ARM64=".build/arm64/release"
+BUILD_X86_64=".build/x86_64/release"
+UNIVERSAL_DIR=".build"
 
-swift build -c release --disable-sandbox
+echo "==> Building arm64 slice..."
+swift build -c release --triple arm64-apple-macosx13.0 --scratch-path .build/arm64 --disable-sandbox
+
+echo "==> Building x86_64 slice..."
+swift build -c release --triple x86_64-apple-macosx13.0 --scratch-path .build/x86_64 --disable-sandbox
+
+echo "==> Creating universal binary..."
+lipo -create -output "${UNIVERSAL_DIR}/llmctl-universal" "${BUILD_ARM64}/llmctl" "${BUILD_X86_64}/llmctl"
 
 mkdir -p "${APP_NAME}.app/Contents/MacOS"
-cp "${BUILD_DIR}/llmctl" "${APP_NAME}.app/Contents/MacOS/llmctl"
+cp "${UNIVERSAL_DIR}/llmctl-universal" "${APP_NAME}.app/Contents/MacOS/llmctl"
 
 mkdir -p "${APP_NAME}.app/Contents/Resources"
 cp Sources/llmctl/llama.png "${APP_NAME}.app/Contents/Resources/llama.png"

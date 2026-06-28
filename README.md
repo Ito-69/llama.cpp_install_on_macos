@@ -136,8 +136,8 @@ Open the app from `/Applications` — it appears in the menu bar.
 
 | Feature | Details |
 |---------|---------|
-| **Size** | 92 KB binary, 108 KB zip |
-| **Arch** | Native arm64, Swift + AppKit |
+| **Size** | 92 KB native, 108 KB zip (universal binary) |
+| **Arch** | Universal: **arm64 + x86_64** (runs on Apple Silicon & Intel) |
 | **Icon** | [selfhst/icons](https://cdn.jsdelivr.net/gh/selfhst/icons/svg/llama-cpp.svg) llama-cpp logo |
 | **Status** | Green = running, faded = stopped (polls every 5s) |
 | **Controls** | Start / Stop / Restart via LaunchAgent |
