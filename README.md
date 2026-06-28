@@ -132,11 +132,11 @@ cd llama-menubar
 cp -r llama-menubar.app /Applications/
 ```
 
-Open the app from `/Applications` — it appears in the menu bar.
+Open the app from `/Applications` — it appears in the menu bar. The binary is **universal** (arm64 + x86_64), runs on any Mac with macOS 13+.
 
 | Feature | Details |
 |---------|---------|
-| **Size** | 92 KB native, 108 KB zip (universal binary) |
+| **Size** | 134 KB zip (universal binary: arm64 + x86_64) |
 | **Arch** | Universal: **arm64 + x86_64** (runs on Apple Silicon & Intel) |
 | **Icon** | [selfhst/icons](https://cdn.jsdelivr.net/gh/selfhst/icons/svg/llama-cpp.svg) llama-cpp logo |
 | **Status** | Green = running, faded = stopped (polls every 5s) |
@@ -307,6 +307,10 @@ rm -rf ~/models/*.gguf
 ## License
 
 MIT — feel free to use, modify, and share.
+
+## Contributors
+
+- **Ito-69** — original installer, macOS tuning, menu bar app design & implementation
 
 ---
 
