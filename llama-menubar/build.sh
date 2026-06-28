@@ -10,6 +10,15 @@ swift build -c release --disable-sandbox
 mkdir -p "${APP_NAME}.app/Contents/MacOS"
 cp "${BUILD_DIR}/llmctl" "${APP_NAME}.app/Contents/MacOS/llmctl"
 
+mkdir -p "${APP_NAME}.app/Contents/Resources"
+cp Sources/llmctl/llama.png "${APP_NAME}.app/Contents/Resources/llama.png"
+cp Sources/llmctl/llama.icns "${APP_NAME}.app/Contents/Resources/llama.icns"
+
+# Bundle install-llama.sh for offline/portable use
+if [[ -f "../install-llama.sh" ]]; then
+  cp "../install-llama.sh" "${APP_NAME}.app/Contents/Resources/install-llama.sh"
+fi
+
 cat > "${APP_NAME}.app/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
@@ -24,6 +33,8 @@ cat > "${APP_NAME}.app/Contents/Info.plist" <<EOF
     <string>llama-menubar</string>
     <key>CFBundleVersion</key>
     <string>1</string>
+    <key>CFBundleIconFile</key>
+    <string>llama</string>
     <key>LSUIElement</key>
     <true/>
 </dict>

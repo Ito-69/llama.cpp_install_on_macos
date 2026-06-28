@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 final class ServerManager {
     private let configPath = "\(NSHomeDirectory())/.config/llama/server.conf"
+    private let launchAgentPlist = "\(NSHomeDirectory())/Library/LaunchAgents/com.llama.cpp.server.plist"
     private let launchAgentService = "gui/\(getuid())/com.llama.cpp.server"
 
     private(set) var isRunning = false
@@ -59,6 +60,8 @@ final class ServerManager {
     }
 
     func startServer() {
+        launchctl("bootstrap", "gui/\(getuid())", launchAgentPlist)
+        launchctl("enable", launchAgentService)
         launchctl("kickstart", launchAgentService)
     }
 
@@ -76,6 +79,145 @@ final class ServerManager {
         task.arguments = args
         try? task.run()
         task.waitUntilExit()
+    }
+}
+
+// MARK: - Update Manager
+
+final class UpdateManager: NSObject {
+    static let shared = UpdateManager()
+
+    private var scriptPath: String? {
+        let saved = UserDefaults.standard.string(forKey: "installScriptPath")
+        if let s = saved, FileManager.default.isExecutableFile(atPath: s) { return s }
+
+        let candidates: [String] = {
+            var c = [String]()
+
+            // bundled inside .app Resources
+            if let r = Bundle.main.resourcePath {
+                c.append("\(r)/install-llama.sh")
+            }
+
+            // next to the executable (dev)
+            if let exe = CommandLine.arguments.first {
+                c.append(URL(fileURLWithPath: exe).deletingLastPathComponent().appendingPathComponent("install-llama.sh").path)
+            }
+
+            // common locations
+            let home = NSHomeDirectory()
+            c.append("\(home)/Documents/llama.cpp-macos-installer/install-llama.sh")
+            c.append("\(home)/.config/llama/install-llama.sh")
+            c.append("\(home)/Downloads/install-llama.sh")
+            c.append("\(home)/Desktop/install-llama.sh")
+
+            // XDG-like
+            if let xdg = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"] {
+                c.append("\(xdg)/llama/install-llama.sh")
+            }
+
+            return c
+        }()
+
+        for path in candidates {
+            if FileManager.default.isExecutableFile(atPath: path) {
+                UserDefaults.standard.set(path, forKey: "installScriptPath")
+                return path
+            }
+        }
+        return nil
+    }
+
+    func isAvailable() -> Bool { scriptPath != nil }
+
+    func checkUpdate() {
+        guard let path = scriptPath else { return notFound() }
+        runScript(path, args: ["--check-update"], title: "Update Check")
+    }
+
+    func applyUpdate() {
+        guard let path = scriptPath else { return notFound() }
+        runScript(path, args: ["--upgrade"], title: "Update Result") { scriptDir in
+            self.cleanupArchive(scriptDir)
+        }
+    }
+
+    private func cleanupArchive(_ dir: String) {
+        let fm = FileManager.default
+        guard let items = try? fm.contentsOfDirectory(atPath: dir) else { return }
+        for name in items {
+            if name.hasPrefix("llama-b") {
+                try? fm.removeItem(atPath: dir + "/" + name)
+            }
+        }
+    }
+
+    private func notFound() {
+        let alert = NSAlert()
+        alert.messageText = "install-llama.sh not found"
+        alert.informativeText = "Locate the script to enable updates."
+        alert.addButton(withTitle: "Locate…")
+        alert.addButton(withTitle: "Cancel")
+        if alert.runModal() == .alertFirstButtonReturn {
+            let panel = NSOpenPanel()
+            panel.allowedContentTypes = [.shellScript]
+            panel.directoryURL = URL(fileURLWithPath: NSHomeDirectory())
+            panel.message = "Select install-llama.sh"
+            if panel.runModal() == .OK, let url = panel.url {
+                UserDefaults.standard.set(url.path, forKey: "installScriptPath")
+            }
+        }
+    }
+
+    private func runScript(_ path: String, args: [String], title: String, done: ((String) -> Void)? = nil) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/bin/bash")
+            task.arguments = [path] + args
+            let outPipe = Pipe()
+            let errPipe = Pipe()
+            task.standardOutput = outPipe
+            task.standardError = errPipe
+            let scriptDir = URL(fileURLWithPath: path).deletingLastPathComponent().path
+            task.currentDirectoryURL = URL(fileURLWithPath: scriptDir)
+            try? task.run()
+            task.waitUntilExit()
+
+            let out = String(data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            let err = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            let output = out + (err.isEmpty ? "" : "\n--- stderr ---\n" + err)
+
+            DispatchQueue.main.async {
+                self?.showOutputWindow(title: title, text: output.isEmpty ? "Done (no output)" : output)
+                done?(scriptDir)
+            }
+        }
+    }
+
+    private func showOutputWindow(title: String, text: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 580, height: 360))
+        scroll.hasVerticalScroller = true
+        scroll.hasHorizontalScroller = false
+        scroll.autohidesScrollers = false
+        scroll.borderType = .bezelBorder
+
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 560, height: 340))
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        textView.string = text
+        textView.textContainer?.containerSize = NSSize(width: 560, height: CGFloat.greatestFiniteMagnitude)
+        textView.textContainer?.widthTracksTextView = true
+        textView.isVerticallyResizable = true
+
+        scroll.documentView = textView
+        alert.accessoryView = scroll
+
+        alert.addButton(withTitle: "Close")
+        alert.runModal()
     }
 }
 
@@ -105,14 +247,25 @@ final class MenuBarController: NSObject {
 
     // MARK: Icon
 
-    private func icon(running: Bool, size: NSSize = NSSize(width: 20, height: 20)) -> NSImage {
-        let img = NSImage(size: size)
+    private let llamaImage: NSImage = {
+        guard let url = Bundle.main.url(forResource: "llama", withExtension: "png"),
+              let img = NSImage(contentsOf: url)
+        else {
+            return NSImage(size: NSSize(width: 20, height: 20))
+        }
+        img.size = NSSize(width: 20, height: 20)
+        return img
+    }()
+
+    private func icon(running: Bool) -> NSImage {
+        let fraction: CGFloat = running ? 1.0 : 0.35
+        let img = NSImage(size: NSSize(width: 20, height: 20))
         img.lockFocusFlipped(false)
-        let color: NSColor = running ? .systemGreen : .tertiaryLabelColor
-        color.setFill()
-        NSBezierPath(ovalIn: NSRect(x: 4, y: 4, width: 12, height: 12)).fill()
+        llamaImage.draw(in: NSRect(x: 0, y: 0, width: 20, height: 20),
+                        from: .zero,
+                        operation: .sourceOver,
+                        fraction: fraction)
         img.unlockFocus()
-        img.isTemplate = false
         return img
     }
 
@@ -120,7 +273,6 @@ final class MenuBarController: NSObject {
 
     private func refresh() {
         statusItem.button?.image = icon(running: server.isRunning)
-        statusItem.button?.image?.isTemplate = false
 
         let menu = NSMenu()
 
@@ -170,6 +322,19 @@ final class MenuBarController: NSObject {
 
         menu.addItem(.separator())
 
+        // Update
+        if UpdateManager.shared.isAvailable() {
+            let check = NSMenuItem(title: "Check for Update...", action: #selector(checkUpdate), keyEquivalent: "")
+            check.target = self
+            menu.addItem(check)
+
+            let apply = NSMenuItem(title: "Apply Update...", action: #selector(applyUpdate), keyEquivalent: "")
+            apply.target = self
+            menu.addItem(apply)
+
+            menu.addItem(.separator())
+        }
+
         // Quit
         let quit = NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q")
         quit.target = self
@@ -205,6 +370,14 @@ final class MenuBarController: NSObject {
         task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         task.arguments = ["/Applications/Utilities/Console.app"]
         try? task.run()
+    }
+
+    @objc private func checkUpdate() {
+        UpdateManager.shared.checkUpdate()
+    }
+
+    @objc private func applyUpdate() {
+        UpdateManager.shared.applyUpdate()
     }
 
     @objc private func quitApp() {

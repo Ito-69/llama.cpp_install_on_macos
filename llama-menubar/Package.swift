@@ -9,7 +9,8 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "llmctl",
-            path: "Sources/llmctl"
+            path: "Sources/llmctl",
+            exclude: ["llama.png", "llama.icns"]
         )
     ]
 )
