@@ -1,0 +1,3 @@
+.build/
+llama-menubar.app/
+*.dSYM/

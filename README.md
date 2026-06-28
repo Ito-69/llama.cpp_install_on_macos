@@ -115,6 +115,23 @@ Configuration is saved to `~/.config/llama/server.conf`.
 | `./install-llama.sh --update` | Install the newest local bundle (keeps model untouched) |
 | `./install-llama.sh --upgrade` | **All-in-one:** download + update + restore LaunchAgent |
 
+### Menu Bar App
+
+A companion **menu bar app** (`llama-menubar`) lives in `llama-menubar/`. It shows a green/gray pill icon in the menu bar and lets you start/stop/restart the server, open the WebUI, and tail logs — no terminal needed.
+
+```bash
+cd llama-menubar
+./build.sh                        # builds llama-menubar.app
+cp -r llama-menubar.app /Applications/
+```
+
+Open the app from `/Applications` — it appears in the menu bar.
+
+- **92 KB** binary, native arm64, zero runtime dependencies
+- Manages the same LaunchAgent as `install-llama.sh`
+- Polls status every 5 seconds (zero CPU when idle)
+- Built with Swift + AppKit
+
 **Recommended update workflow (with LaunchAgent):**
 
 ```bash
