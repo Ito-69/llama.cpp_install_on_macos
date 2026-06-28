@@ -308,10 +308,6 @@ rm -rf ~/models/*.gguf
 
 MIT — feel free to use, modify, and share.
 
-## Contributors
-
-- **Ito-69** — original installer, macOS tuning, menu bar app design & implementation
-
 ---
 
 *Inspired by the [llama.cpp](https://github.com/ggml-org/llama.cpp) project by ggerganov.*
