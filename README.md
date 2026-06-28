@@ -115,22 +115,46 @@ Configuration is saved to `~/.config/llama/server.conf`.
 | `./install-llama.sh --update` | Install the newest local bundle (keeps model untouched) |
 | `./install-llama.sh --upgrade` | **All-in-one:** download + update + restore LaunchAgent |
 
-### Menu Bar App
+### Menu Bar App (llama-menubar)
 
-A companion **menu bar app** (`llama-menubar`) lives in `llama-menubar/`. It shows a green/gray pill icon in the menu bar and lets you start/stop/restart the server, open the WebUI, and tail logs — no terminal needed.
+A companion **menu bar app** for managing llama-server without touching the terminal.
+Shows the server status via the llama-cpp icon (green = running, faded = stopped) and
+provides start/stop/restart, WebUI launcher, log viewer, and built-in update checks.
+
+**Download:** grab `llama-menubar-1.0.0.zip` from
+[GitHub Releases](https://github.com/Ito-69/llama.cpp_install_on_macos/releases/tag/v1.0.0),
+extract, and drag `llama-menubar.app` to `/Applications`.
 
 ```bash
+# Or build it yourself from source:
 cd llama-menubar
-./build.sh                        # builds llama-menubar.app
+./build.sh
 cp -r llama-menubar.app /Applications/
 ```
 
 Open the app from `/Applications` — it appears in the menu bar.
 
-- **92 KB** binary, native arm64, zero runtime dependencies
-- Manages the same LaunchAgent as `install-llama.sh`
-- Polls status every 5 seconds (zero CPU when idle)
-- Built with Swift + AppKit
+| Feature | Details |
+|---------|---------|
+| **Size** | 92 KB binary, 108 KB zip |
+| **Arch** | Native arm64, Swift + AppKit |
+| **Icon** | [selfhst/icons](https://cdn.jsdelivr.net/gh/selfhst/icons/svg/llama-cpp.svg) llama-cpp logo |
+| **Status** | Green = running, faded = stopped (polls every 5s) |
+| **Controls** | Start / Stop / Restart via LaunchAgent |
+| **Update** | Check for Update / Apply Update (runs `install-llama.sh --check-update` / `--upgrade`) |
+| **Script discovery** | Looks in app bundle → `~/Documents/llama.cpp-macos-installer/` → `~/.config/llama/` → file picker |
+
+#### Changelog (v1.0.0)
+
+- **Auto-download** — installer fetches the latest llama.cpp build from GitHub if no local bundle is found
+- **`hf` CLI support** — uses `hf` (huggingface_hub v1.x) first, falls back to legacy `huggingface-cli`
+- **macOS `pip3`** — all pip commands use `pip3` (macOS standard)
+- **`--local-dir-use-symlinks`** skipped for `hf` CLI (not supported in v1.x)
+- **`hf` search path** — also checks `python3 -m site --user-base` (macOS user bin dir)
+- **Default model** changed from 14B to **Qwen2.5 7B Q4_K_M** (~4.7 GB, faster for most users)
+- **Non-blocking server** — uses `nohup` + `&` + `disown` so the terminal is freed after install
+- **WebUI URL** shown in status and test instructions
+- **Uninstall docs** — `--uninstall-agent` and cleanup paths printed after install
 
 **Recommended update workflow (with LaunchAgent):**
 
@@ -152,6 +176,16 @@ Open the app from `/Applications` — it appears in the menu bar.
 |---------|-------------|
 | `./install-llama.sh --install-agent` | Install/reload LaunchAgent; server runs in background |
 | `./install-llama.sh --uninstall-agent` | Stop and remove LaunchAgent |
+
+**Recommended setup with the menu bar app:**
+
+```bash
+# 1. Install llama.cpp + LaunchAgent (headless)
+./install-llama.sh --install-agent
+
+# 2. Open the menu bar app to control the server
+open /Applications/llama-menubar.app
+```
 
 **LaunchAgent files:**
 
