@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-VERSION="2.0.0"
+VERSION="2.0.1"
 APP_NAME="llama-menubar"
 BUILD_ARM64=".build/arm64/release"
 BUILD_X86_64=".build/x86_64/release"
@@ -52,6 +52,10 @@ cat > "${APP_NAME}.app/Contents/Info.plist" <<EOF
 </dict>
 </plist>
 EOF
+
+echo "==> Ad-hoc signing to reduce Gatekeeper friction..."
+codesign --force --deep --sign - "${APP_NAME}.app"
+xattr -dr com.apple.quarantine "${APP_NAME}.app" 2>/dev/null || true
 
 echo ""
 echo "  Built: ${APP_NAME}.app"
