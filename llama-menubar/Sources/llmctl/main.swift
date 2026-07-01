@@ -362,7 +362,27 @@ final class MenuBarController: NSObject {
             menu.addItem(start)
         }
 
-menu.addItem(.separator())
+        menu.addItem(.separator())
+
+        // Logs
+        let logs = NSMenuItem(title: "Tail Logs", action: #selector(tailLogs), keyEquivalent: "l")
+        logs.target = self
+        menu.addItem(logs)
+
+        menu.addItem(.separator())
+
+        // Update
+        if UpdateManager.shared.isAvailable() {
+            let check = NSMenuItem(title: "Check for Update...", action: #selector(checkUpdate), keyEquivalent: "")
+            check.target = self
+            menu.addItem(check)
+
+            let apply = NSMenuItem(title: "Apply Update...", action: #selector(applyUpdate), keyEquivalent: "")
+            apply.target = self
+            menu.addItem(apply)
+
+            menu.addItem(.separator())
+        }
 
         // Launch at Login
         let login = NSMenuItem(title: "Launch at Login",
