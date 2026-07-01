@@ -206,7 +206,14 @@ final class UpdateManager: NSObject {
     }
 
     private func runScript(_ path: String, args: [String], title: String, onComplete: ((String, Bool) -> Void)? = nil) {
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        let isCheck = args.first == "--check-update"
+        let controller = OutputWindowController(title: title, showApplyInitially: isCheck)
+        controller.show()
+        controller.appendText("Working…\n")
+
+        let scriptDir = URL(fileURLWithPath: path).deletingLastPathComponent().path
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak controller] in
             let task = Process()
             task.executableURL = URL(fileURLWithPath: "/bin/bash")
             task.arguments = [path] + args
@@ -214,59 +221,169 @@ final class UpdateManager: NSObject {
             let errPipe = Pipe()
             task.standardOutput = outPipe
             task.standardError = errPipe
-            let scriptDir = URL(fileURLWithPath: path).deletingLastPathComponent().path
             task.currentDirectoryURL = URL(fileURLWithPath: scriptDir)
+
+            let outHandle = outPipe.fileHandleForReading
+            let errHandle = errPipe.fileHandleForReading
+
+            var fullOut = ""
+            outHandle.readabilityHandler = { fh in
+                let data = fh.availableData
+                guard !data.isEmpty, let s = String(data: data, encoding: .utf8) else { return }
+                fullOut += s
+                DispatchQueue.main.async { controller?.appendText(s) }
+            }
+            errHandle.readabilityHandler = { fh in
+                let data = fh.availableData
+                guard !data.isEmpty, let s = String(data: data, encoding: .utf8) else { return }
+                DispatchQueue.main.async { controller?.appendText(s) }
+            }
+
             try? task.run()
             task.waitUntilExit()
+            outHandle.readabilityHandler = nil
+            errHandle.readabilityHandler = nil
 
-            let out = String(data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            let err = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            let output = out + (err.isEmpty ? "" : "\n--- stderr ---\n" + err)
-
-            let isCheck = args.first == "--check-update"
-            let updateAvailable = isCheck && out.contains("newer version available")
+            let exitCode = task.terminationStatus
+            let updateAvailable = isCheck && fullOut.contains("newer version available")
 
             DispatchQueue.main.async {
-                let response = self?.showOutputWindow(title: title,
-                                                     text: output.isEmpty ? "Done (no output)" : output,
-                                                     updateAvailable: updateAvailable)
-                    ?? .alertSecondButtonReturn
-                let didApply = isCheck && response == .alertFirstButtonReturn && updateAvailable
-                onComplete?(scriptDir, didApply)
+                controller?.finish(exitCode: exitCode, applyEnabled: updateAvailable) { applyClicked in
+                    onComplete?(scriptDir, isCheck && applyClicked && updateAvailable)
+                }
             }
         }
     }
+}
 
-    @discardableResult
-    private func showOutputWindow(title: String, text: String, updateAvailable: Bool = false) -> NSApplication.ModalResponse {
-        let alert = NSAlert()
-        alert.messageText = title
+// MARK: - Output Window Controller
 
-        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 580, height: 360))
+final class OutputWindowController: NSObject, NSWindowDelegate {
+    private let window: NSPanel
+    private let textView: NSTextView
+    private let applyButton: NSButton
+    private let closeButton: NSButton
+    private let progress: NSProgressIndicator
+    private var onFinish: ((Bool) -> Void)?
+
+    init(title: String, showApplyInitially: Bool) {
+        let win = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 460),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered, defer: false
+        )
+        win.title = title
+        win.isFloatingPanel = true
+        win.hidesOnDeactivate = false
+
+        let content = NSView(frame: win.contentView!.bounds)
+        content.autoresizingMask = [.width, .height]
+
+        let scroll = NSScrollView(frame: NSRect(x: 16, y: 60, width: 608, height: 360))
+        scroll.autoresizingMask = [.width, .height]
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = false
         scroll.autohidesScrollers = false
         scroll.borderType = .bezelBorder
 
-        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 560, height: 340))
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-        textView.string = text
-        textView.textContainer?.containerSize = NSSize(width: 560, height: CGFloat.greatestFiniteMagnitude)
-        textView.textContainer?.widthTracksTextView = true
-        textView.isVerticallyResizable = true
+        let tv = NSTextView(frame: scroll.bounds)
+        tv.autoresizingMask = [.width, .height]
+        tv.isEditable = false
+        tv.isSelectable = true
+        tv.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        tv.textContainer?.containerSize = NSSize(width: 608, height: CGFloat.greatestFiniteMagnitude)
+        tv.textContainer?.widthTracksTextView = true
+        tv.isVerticallyResizable = true
 
-        scroll.documentView = textView
-        alert.accessoryView = scroll
+        scroll.documentView = tv
 
-        if updateAvailable {
-            alert.addButton(withTitle: "Apply Update")
-            alert.addButton(withTitle: "Close")
-        } else {
-            alert.addButton(withTitle: "Close")
+        let spinner = NSProgressIndicator(frame: NSRect(x: 16, y: 20, width: 16, height: 16))
+        spinner.style = .spinning
+        spinner.controlSize = .small
+        spinner.startAnimation(nil)
+
+        let apply = NSButton(title: "Apply Update", target: nil, action: nil)
+        apply.bezelStyle = .rounded
+        apply.isEnabled = false
+        apply.setButtonType(.momentaryPushIn)
+        apply.frame = NSRect(x: 640 - 16 - 80 - 8 - 80, y: 14, width: 80, height: 24)
+        apply.autoresizingMask = [.minXMargin]
+
+        let close = NSButton(title: "Close", target: nil, action: nil)
+        close.bezelStyle = .rounded
+        close.isEnabled = false
+        close.setButtonType(.momentaryPushIn)
+        close.frame = NSRect(x: 640 - 16 - 80, y: 14, width: 80, height: 24)
+        close.autoresizingMask = [.minXMargin]
+
+        content.addSubview(scroll)
+        content.addSubview(spinner)
+        content.addSubview(apply)
+        content.addSubview(close)
+
+        win.contentView = content
+
+        self.window = win
+        self.textView = tv
+        self.applyButton = apply
+        self.closeButton = close
+        self.progress = spinner
+
+        super.init()
+        win.delegate = self
+        apply.target = self
+        apply.action = #selector(applyClicked)
+        close.target = self
+        close.action = #selector(closeClicked)
+        // Show only the close button if no apply
+        apply.isHidden = !showApplyInitially
+    }
+
+    func show() {
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func appendText(_ s: String) {
+        let attr = NSAttributedString(string: s, attributes: [
+            .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
+            .foregroundColor: NSColor.textColor,
+        ])
+        textView.textStorage?.append(attr)
+        textView.scrollToEndOfDocument(nil)
+    }
+
+    func finish(exitCode: Int32, applyEnabled: Bool, onFinish: @escaping (Bool) -> Void) {
+        progress.stopAnimation(nil)
+        progress.isHidden = true
+        appendText("\n--- finished (exit \(exitCode)) ---\n")
+        if applyEnabled {
+            applyButton.isHidden = false
+            applyButton.isEnabled = true
         }
-        return alert.runModal()
+        closeButton.isEnabled = true
+        self.onFinish = onFinish
+    }
+
+    @objc private func applyClicked() {
+        window.close()
+        onFinish?(true)
+        onFinish = nil
+    }
+
+    @objc private func closeClicked() {
+        window.close()
+        onFinish?(false)
+        onFinish = nil
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        // If user closed via the red X button, fire onFinish with false.
+        if let cb = onFinish {
+            cb(false)
+            onFinish = nil
+        }
     }
 }
 
