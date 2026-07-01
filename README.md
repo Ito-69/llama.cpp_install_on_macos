@@ -64,6 +64,7 @@ The app lives in your menu bar with a green llama icon (faded = stopped, full = 
 |-----------|-------------|
 | `Open WebUI` | Open `http://127.0.0.1:8080` in your browser (⌘O) |
 | `Start Server` / `Stop Server` / `Restart Server` | Control the llama-server LaunchAgent |
+| `Models…` | Open the Models window (browse, download, activate, delete) |
 | `Check for App Update...` | Check for a newer llama-menubar release on GitHub |
 | `Check for llama.cpp Update...` | Check for a newer llama.cpp build |
 | `Apply llama.cpp Update...` | Download and install the latest llama.cpp build |
@@ -73,6 +74,44 @@ The app lives in your menu bar with a green llama icon (faded = stopped, full = 
 | `Quit` | Exit the menu bar app (⌘Q) |
 
 The status icon polls every 5 seconds.
+
+## Managing Models
+
+Click **Models…** in the menu bar to open a dedicated window with four tabs:
+
+### Active
+
+Shows the current active model — its label, file size, and whether the server is running. Use this as a starting point to change models.
+
+### Browse
+
+Two modes via a dropdown:
+
+- **Shortlist** — 10 curated popular GGUF models (Qwen2.5, Llama 3.1, Mistral Nemo, Phi 3.5, Gemma 2, DeepSeek R1, etc.) with descriptions and approximate sizes. Double-click to pick.
+- **Search** — search Hugging Face for any GGUF model by name. Results sorted by downloads.
+
+After picking a repo, a file picker shows all available `.gguf` quantizations with sizes from Hugging Face. Pick one and click **Download** — the progress bar and live log appear in the same window. Once finished, you're asked "Use this model now?" — Yes updates the server config and restarts the LaunchAgent; No just keeps the file in `~/models/` for later.
+
+### Installed
+
+Lists every `.gguf` file in `~/models/`. The currently active model is marked with ✓. Right-click or use the buttons:
+
+- **Make Active** — switches to that model and restarts the server
+- **Delete…** — removes the file from disk (with confirmation)
+
+### Install from URL
+
+Paste any of these and click **Fetch**:
+
+- `https://huggingface.co/<owner>/<repo>` — opens the file picker
+- `https://huggingface.co/<owner>/<repo>/resolve/main/<file>.gguf` — skips the picker and goes straight to download
+- `<owner>/<repo>` — bare repo id
+
+### Tips
+
+- Without a Hugging Face token, downloads are rate-limited. The app prompts for one on first install. You can add a token later from the welcome dialog.
+- The download uses `huggingface_hub` (Python) which supports resumable downloads.
+- All downloaded models land in `~/models/`. Delete them anytime from the Installed tab.
 
 ## Build from Source
 
