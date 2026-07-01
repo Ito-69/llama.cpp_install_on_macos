@@ -141,7 +141,8 @@ Open the app from `/Applications` — it appears in the menu bar. The binary is 
 | **Icon** | [selfhst/icons](https://cdn.jsdelivr.net/gh/selfhst/icons/svg/llama-cpp.svg) llama-cpp logo |
 | **Status** | Green = running, faded = stopped (polls every 5s) |
 | **Controls** | Start / Stop / Restart via LaunchAgent |
-| **Update** | Check for Update / Apply Update (runs `install-llama.sh --check-update` / `--upgrade`) |
+| **Update** | Check for Update... (if newer build exists, an **Apply Update** button appears in the same window — one-click flow) |
+| **Launch at Login** | Toggle from the menu — adds/removes the app in System Settings → General → Login Items |
 | **Script discovery** | Looks in app bundle → `~/Documents/llama.cpp-macos-installer/` → `~/.config/llama/` → file picker |
 
 #### Changelog (v1.0.0)

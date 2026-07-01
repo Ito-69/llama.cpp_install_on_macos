@@ -82,6 +82,37 @@ final class ServerManager {
     }
 }
 
+// MARK: - Launch at Login
+
+import ServiceManagement
+
+final class LaunchAtLoginManager {
+    static let shared = LaunchAtLoginManager()
+
+    private let service = SMAppService.mainApp
+
+    var isEnabled: Bool { service.status == .enabled }
+
+    var isInApplicationsFolder: Bool {
+        Bundle.main.bundlePath.hasPrefix("/Applications/")
+    }
+
+    @discardableResult
+    func setEnabled(_ enabled: Bool) -> Bool {
+        do {
+            if enabled {
+                if !isInApplicationsFolder { return false }
+                try service.register()
+            } else {
+                try service.unregister()
+            }
+            return true
+        } catch {
+            return false
+        }
+    }
+}
+
 // MARK: - Update Manager
 
 final class UpdateManager: NSObject {
@@ -132,14 +163,19 @@ final class UpdateManager: NSObject {
 
     func checkUpdate() {
         guard let path = scriptPath else { return notFound() }
-        runScript(path, args: ["--check-update"], title: "Update Check")
+        runScript(path, args: ["--check-update"], title: "Update Check", onComplete: { [weak self] _, updateAvailable in
+            if updateAvailable {
+                self?.applyUpdate()
+            }
+        })
     }
 
     func applyUpdate() {
         guard let path = scriptPath else { return notFound() }
-        runScript(path, args: ["--upgrade"], title: "Update Result") { scriptDir in
-            self.cleanupArchive(scriptDir)
-        }
+        runScript(path, args: ["--upgrade"], title: "Update Result", onComplete: { _, _ in
+            let scriptDir = (self.scriptPath as String?).map { URL(fileURLWithPath: $0).deletingLastPathComponent().path } ?? ""
+            if !scriptDir.isEmpty { self.cleanupArchive(scriptDir) }
+        })
     }
 
     private func cleanupArchive(_ dir: String) {
@@ -169,7 +205,7 @@ final class UpdateManager: NSObject {
         }
     }
 
-    private func runScript(_ path: String, args: [String], title: String, done: ((String) -> Void)? = nil) {
+    private func runScript(_ path: String, args: [String], title: String, onComplete: ((String, Bool) -> Void)? = nil) {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let task = Process()
             task.executableURL = URL(fileURLWithPath: "/bin/bash")
@@ -187,14 +223,22 @@ final class UpdateManager: NSObject {
             let err = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
             let output = out + (err.isEmpty ? "" : "\n--- stderr ---\n" + err)
 
+            let isCheck = args.first == "--check-update"
+            let updateAvailable = isCheck && out.contains("newer version available")
+
             DispatchQueue.main.async {
-                self?.showOutputWindow(title: title, text: output.isEmpty ? "Done (no output)" : output)
-                done?(scriptDir)
+                let response = self?.showOutputWindow(title: title,
+                                                     text: output.isEmpty ? "Done (no output)" : output,
+                                                     updateAvailable: updateAvailable)
+                    ?? .alertSecondButtonReturn
+                let didApply = isCheck && response == .alertSecondButtonReturn && updateAvailable
+                onComplete?(scriptDir, didApply)
             }
         }
     }
 
-    private func showOutputWindow(title: String, text: String) {
+    @discardableResult
+    private func showOutputWindow(title: String, text: String, updateAvailable: Bool = false) -> NSApplication.ModalResponse {
         let alert = NSAlert()
         alert.messageText = title
 
@@ -216,8 +260,13 @@ final class UpdateManager: NSObject {
         scroll.documentView = textView
         alert.accessoryView = scroll
 
-        alert.addButton(withTitle: "Close")
-        alert.runModal()
+        if updateAvailable {
+            alert.addButton(withTitle: "Apply Update")
+            alert.addButton(withTitle: "Close")
+        } else {
+            alert.addButton(withTitle: "Close")
+        }
+        return alert.runModal()
     }
 }
 
@@ -313,27 +362,17 @@ final class MenuBarController: NSObject {
             menu.addItem(start)
         }
 
+menu.addItem(.separator())
+
+        // Launch at Login
+        let login = NSMenuItem(title: "Launch at Login",
+                               action: #selector(toggleLaunchAtLogin),
+                               keyEquivalent: "")
+        login.target = self
+        login.state = LaunchAtLoginManager.shared.isEnabled ? .on : .off
+        menu.addItem(login)
+
         menu.addItem(.separator())
-
-        // Logs
-        let logs = NSMenuItem(title: "Tail Logs", action: #selector(tailLogs), keyEquivalent: "l")
-        logs.target = self
-        menu.addItem(logs)
-
-        menu.addItem(.separator())
-
-        // Update
-        if UpdateManager.shared.isAvailable() {
-            let check = NSMenuItem(title: "Check for Update...", action: #selector(checkUpdate), keyEquivalent: "")
-            check.target = self
-            menu.addItem(check)
-
-            let apply = NSMenuItem(title: "Apply Update...", action: #selector(applyUpdate), keyEquivalent: "")
-            apply.target = self
-            menu.addItem(apply)
-
-            menu.addItem(.separator())
-        }
 
         // Quit
         let quit = NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q")
@@ -378,6 +417,29 @@ final class MenuBarController: NSObject {
 
     @objc private func applyUpdate() {
         UpdateManager.shared.applyUpdate()
+    }
+
+    @objc private func toggleLaunchAtLogin(_ sender: NSMenuItem) {
+        let manager = LaunchAtLoginManager.shared
+        let newState = !manager.isEnabled
+
+        if newState && !manager.isInApplicationsFolder {
+            let alert = NSAlert()
+            alert.messageText = "Move app to /Applications first"
+            alert.informativeText = "Launch at Login requires the app to live in /Applications so it can be found reliably on boot."
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
+
+        if !manager.setEnabled(newState) {
+            let alert = NSAlert()
+            alert.messageText = "Could not change Launch at Login"
+            alert.informativeText = "Check System Settings → General → Login Items for the current status."
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        }
+        refresh()
     }
 
     @objc private func quitApp() {
