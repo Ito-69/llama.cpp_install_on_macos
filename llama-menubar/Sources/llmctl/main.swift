@@ -1,6 +1,45 @@
 import AppKit
 import Foundation
 
+// MARK: - App Support
+
+let APP_SUPPORT_DIR = NSHomeDirectory() + "/Library/Application Support/llama-menubar"
+let INSTALL_SCRIPT_PATH = APP_SUPPORT_DIR + "/install-llama.sh"
+let CONFIG_PATH = "\(NSHomeDirectory())/.config/llama/server.conf"
+
+func ensureSupportDir() -> Bool {
+    let fm = FileManager.default
+    var isDir: ObjCBool = false
+    if fm.fileExists(atPath: APP_SUPPORT_DIR, isDirectory: &isDir), isDir.boolValue {
+        return true
+    }
+    do {
+        try fm.createDirectory(atPath: APP_SUPPORT_DIR, withIntermediateDirectories: true)
+        return true
+    } catch {
+        return false
+    }
+}
+
+func copyBundledScript() -> Bool {
+    guard let resPath = Bundle.main.resourcePath else { return false }
+    let bundled = resPath + "/install-llama.sh"
+    guard FileManager.default.fileExists(atPath: bundled) else { return false }
+    let fm = FileManager.default
+    try? fm.removeItem(atPath: INSTALL_SCRIPT_PATH)
+    do {
+        try fm.copyItem(atPath: bundled, toPath: INSTALL_SCRIPT_PATH)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: INSTALL_SCRIPT_PATH)
+        return true
+    } catch {
+        return false
+    }
+}
+
+func isInstalled() -> Bool {
+    FileManager.default.fileExists(atPath: CONFIG_PATH)
+}
+
 // MARK: - App Delegate
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -8,6 +47,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+
+        guard ensureSupportDir(), copyBundledScript() else {
+            let alert = NSAlert()
+            alert.messageText = "Setup Failed"
+            alert.informativeText = "Could not prepare the support directory."
+            alert.addButton(withTitle: "Quit")
+            alert.runModal()
+            NSApp.terminate(nil)
+            return
+        }
+
+        if isInstalled() {
+            showMenuBar()
+        } else {
+            showWelcomeAndInstall()
+        }
+    }
+
+    private func showWelcomeAndInstall() {
+        let alert = NSAlert()
+        alert.messageText = "Welcome to llama-menubar"
+        alert.informativeText = "This app will install llama.cpp, download a language model, and set up a local AI server in your menu bar.\n\nThis may take a few minutes depending on your internet speed."
+        alert.addButton(withTitle: "Install")
+        alert.addButton(withTitle: "Quit")
+        guard alert.runModal() == .alertFirstButtonReturn else { NSApp.terminate(nil); return }
+
+        InstallManager.shared.install { [weak self] success in
+            DispatchQueue.main.async {
+                if success {
+                    self?.showMenuBar()
+                } else {
+                    let err = NSAlert()
+                    err.messageText = "Installation incomplete"
+                    err.informativeText = "Check the output for details. You can re-install later from the menu."
+                    err.runModal()
+                    self?.showMenuBar()
+                }
+            }
+        }
+    }
+
+    private func showMenuBar() {
         menuBar = MenuBarController()
     }
 }
@@ -15,7 +96,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 // MARK: - Server Manager
 
 final class ServerManager {
-    private let configPath = "\(NSHomeDirectory())/.config/llama/server.conf"
     private let launchAgentPlist = "\(NSHomeDirectory())/Library/LaunchAgents/com.llama.cpp.server.plist"
     private let launchAgentService = "gui/\(getuid())/com.llama.cpp.server"
 
@@ -32,7 +112,7 @@ final class ServerManager {
     }
 
     private func loadConfig() {
-        guard let content = try? String(contentsOfFile: configPath, encoding: .utf8) else { return }
+        guard let content = try? String(contentsOfFile: CONFIG_PATH, encoding: .utf8) else { return }
         for line in content.components(separatedBy: .newlines) {
             let parts = line.split(separator: "=", maxSplits: 1).map {
                 $0.trimmingCharacters(in: .whitespaces)
@@ -113,116 +193,24 @@ final class LaunchAtLoginManager {
     }
 }
 
-// MARK: - Update Manager
+// MARK: - Install Manager
 
-final class UpdateManager: NSObject {
-    static let shared = UpdateManager()
-
+final class InstallManager: NSObject {
+    static let shared = InstallManager()
     private var activeControllers: [OutputWindowController] = []
 
-    private var scriptPath: String? {
-        let saved = UserDefaults.standard.string(forKey: "installScriptPath")
-        if let s = saved, FileManager.default.isExecutableFile(atPath: s) { return s }
-
-        let candidates: [String] = {
-            var c = [String]()
-
-            // bundled inside .app Resources
-            if let r = Bundle.main.resourcePath {
-                c.append("\(r)/install-llama.sh")
-            }
-
-            // next to the executable (dev)
-            if let exe = CommandLine.arguments.first {
-                c.append(URL(fileURLWithPath: exe).deletingLastPathComponent().appendingPathComponent("install-llama.sh").path)
-            }
-
-            // common locations
-            let home = NSHomeDirectory()
-            c.append("\(home)/Documents/llama.cpp-macos-installer/install-llama.sh")
-            c.append("\(home)/.config/llama/install-llama.sh")
-            c.append("\(home)/Downloads/install-llama.sh")
-            c.append("\(home)/Desktop/install-llama.sh")
-
-            // XDG-like
-            if let xdg = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"] {
-                c.append("\(xdg)/llama/install-llama.sh")
-            }
-
-            return c
-        }()
-
-        for path in candidates {
-            if FileManager.default.isExecutableFile(atPath: path) {
-                UserDefaults.standard.set(path, forKey: "installScriptPath")
-                return path
-            }
-        }
-        return nil
-    }
-
-    func isAvailable() -> Bool { scriptPath != nil }
-
-    func checkUpdate() {
-        guard let path = scriptPath else { return notFound() }
-        runScript(path, args: ["--check-update"], title: "Update Check", onComplete: { [weak self] _, updateAvailable in
-            if updateAvailable {
-                self?.applyUpdate()
-            }
-        })
-    }
-
-    func applyUpdate() {
-        guard let path = scriptPath else { return notFound() }
-        runScript(path, args: ["--upgrade"], title: "Update Result", onComplete: { _, _ in
-            let scriptDir = (self.scriptPath as String?).map { URL(fileURLWithPath: $0).deletingLastPathComponent().path } ?? ""
-            if !scriptDir.isEmpty { self.cleanupArchive(scriptDir) }
-        })
-    }
-
-    private func cleanupArchive(_ dir: String) {
-        let fm = FileManager.default
-        guard let items = try? fm.contentsOfDirectory(atPath: dir) else { return }
-        for name in items {
-            if name.hasPrefix("llama-b") {
-                try? fm.removeItem(atPath: dir + "/" + name)
-            }
-        }
-    }
-
-    private func notFound() {
-        let alert = NSAlert()
-        alert.messageText = "install-llama.sh not found"
-        alert.informativeText = "Locate the script to enable updates."
-        alert.addButton(withTitle: "Locate…")
-        alert.addButton(withTitle: "Cancel")
-        if alert.runModal() == .alertFirstButtonReturn {
-            let panel = NSOpenPanel()
-            panel.allowedContentTypes = [.shellScript]
-            panel.directoryURL = URL(fileURLWithPath: NSHomeDirectory())
-            panel.message = "Select install-llama.sh"
-            if panel.runModal() == .OK, let url = panel.url {
-                UserDefaults.standard.set(url.path, forKey: "installScriptPath")
-            }
-        }
-    }
-
-    private func runScript(_ path: String, args: [String], title: String, onComplete: ((String, Bool) -> Void)? = nil) {
-        let isCheck = args.first == "--check-update"
-        let controller = OutputWindowController(title: title, showApplyInitially: isCheck)
-        // Keep a strong reference to the controller so it isn't deallocated
-        // when this function returns. The window itself only holds the
-        // delegate weakly.
+    func install(completion: @escaping (Bool) -> Void) {
+        let controller = OutputWindowController(title: "Installing llama.cpp…", showApplyInitially: false)
         activeControllers.append(controller)
         controller.show()
-        controller.appendText("Working…\n")
+        controller.appendText("Installing…\n")
 
-        let scriptDir = URL(fileURLWithPath: path).deletingLastPathComponent().path
+        let scriptDir = URL(fileURLWithPath: INSTALL_SCRIPT_PATH).deletingLastPathComponent().path
 
         DispatchQueue.global(qos: .userInitiated).async {
             let task = Process()
             task.executableURL = URL(fileURLWithPath: "/bin/bash")
-            task.arguments = [path] + args
+            task.arguments = [INSTALL_SCRIPT_PATH]
             let outPipe = Pipe()
             let errPipe = Pipe()
             task.standardOutput = outPipe
@@ -235,67 +223,186 @@ final class UpdateManager: NSObject {
                 DispatchQueue.main.async {
                     controller.appendText("\nFailed to start: \(error.localizedDescription)\n")
                     controller.finish(exitCode: -1, applyEnabled: false) { _ in
-                        onComplete?(scriptDir, false)
+                        self.activeControllers.removeAll { $0 === controller }
+                        completion(false)
                     }
                 }
                 return
             }
 
-            let outHandle = outPipe.fileHandleForReading
-            let errHandle = errPipe.fileHandleForReading
+            task.waitUntilExit()
+            let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+            let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+            var fullOutput = ""
+            if let s = String(data: outData, encoding: .utf8) { fullOutput += s }
+            if let s = String(data: errData, encoding: .utf8) { fullOutput += s }
 
-            var fullOut = ""
-            var fullErr = ""
-            let bufferLock = NSLock()
-            let group = DispatchGroup()
+            let success = task.terminationStatus == 0
 
-            group.enter()
-            DispatchQueue.global(qos: .userInitiated).async {
-                while true {
-                    let data = outHandle.availableData
-                    if data.isEmpty { break }
-                    if let s = String(data: data, encoding: .utf8) {
-                        bufferLock.lock()
-                        fullOut += s
-                        bufferLock.unlock()
-                        DispatchQueue.main.async { controller.appendText(s) }
-                    }
+            DispatchQueue.main.async {
+                controller.setOutput(fullOutput)
+                controller.finish(exitCode: task.terminationStatus, applyEnabled: false) { _ in
+                    self.activeControllers.removeAll { $0 === controller }
+                    completion(success)
                 }
-                group.leave()
             }
+        }
+    }
+}
 
-            group.enter()
-            DispatchQueue.global(qos: .userInitiated).async {
-                while true {
-                    let data = errHandle.availableData
-                    if data.isEmpty { break }
-                    if let s = String(data: data, encoding: .utf8) {
-                        bufferLock.lock()
-                        fullErr += s
-                        bufferLock.unlock()
-                        DispatchQueue.main.async { controller.appendText(s) }
+// MARK: - Update Manager
+
+final class UpdateManager: NSObject {
+    static let shared = UpdateManager()
+
+    private var activeControllers: [OutputWindowController] = []
+
+    func isAvailable() -> Bool {
+        FileManager.default.isExecutableFile(atPath: INSTALL_SCRIPT_PATH)
+    }
+
+    func checkUpdate() {
+        runScript(args: ["--check-update"], title: "Update Check") { [weak self] applyRequested in
+            if applyRequested {
+                self?.applyUpdate()
+            }
+        }
+    }
+
+    func applyUpdate() {
+        runScript(args: ["--upgrade"], title: "Update Result") { [weak self] _ in
+            self?.cleanupArchive(APP_SUPPORT_DIR)
+        }
+    }
+
+    private func cleanupArchive(_ dir: String) {
+        let fm = FileManager.default
+        guard let items = try? fm.contentsOfDirectory(atPath: dir) else { return }
+        for name in items {
+            if name.hasPrefix("llama-b") {
+                try? fm.removeItem(atPath: dir + "/" + name)
+            }
+        }
+    }
+
+    private func runScript(args: [String], title: String, onComplete: ((Bool) -> Void)? = nil) {
+        let isCheck = args.first == "--check-update"
+        let controller = OutputWindowController(title: title, showApplyInitially: isCheck)
+        activeControllers.append(controller)
+        controller.show()
+        controller.appendText("Working…\n")
+
+        let scriptDir = URL(fileURLWithPath: INSTALL_SCRIPT_PATH).deletingLastPathComponent().path
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/bin/bash")
+            task.arguments = [INSTALL_SCRIPT_PATH] + args
+            let outPipe = Pipe()
+            let errPipe = Pipe()
+            task.standardOutput = outPipe
+            task.standardError = errPipe
+            task.currentDirectoryURL = URL(fileURLWithPath: scriptDir)
+
+            do {
+                try task.run()
+            } catch {
+                DispatchQueue.main.async {
+                    controller.appendText("\nFailed to start: \(error.localizedDescription)\n")
+                    controller.finish(exitCode: -1, applyEnabled: false) { _ in
+                        onComplete?(false)
                     }
                 }
-                group.leave()
+                return
             }
 
             task.waitUntilExit()
-            _ = group.wait(timeout: .now() + 5)
+            let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+            let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+            var fullOut = ""
+            if let s = String(data: outData, encoding: .utf8) { fullOut += s }
+            if let s = String(data: errData, encoding: .utf8) { fullOut += s }
 
             let exitCode = task.terminationStatus
             let updateAvailable = isCheck && fullOut.contains("newer version available")
 
             DispatchQueue.main.async {
-                controller.finish(exitCode: exitCode, applyEnabled: updateAvailable) { [weak self] applyClicked in
-                    self?.activeControllers.removeAll { $0 === controller }
-                    onComplete?(scriptDir, isCheck && applyClicked && updateAvailable)
+                controller.setOutput(fullOut)
+                controller.finish(exitCode: exitCode, applyEnabled: updateAvailable) { applyClicked in
+                    self.activeControllers.removeAll { $0 === controller }
+                    onComplete?(isCheck && applyClicked && updateAvailable)
                 }
             }
         }
     }
+}
 
-    private func escapeForShell(_ s: String) -> String {
-        return "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+// MARK: - App Update Manager
+
+final class AppUpdateManager {
+    static let shared = AppUpdateManager()
+
+    var currentVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
+    }
+
+    func check(completion: @escaping (String?) -> Void) {
+        guard let url = URL(string: "https://api.github.com/repos/ivantonov/llama.cpp-macos-installer/releases/latest") else {
+            completion(nil)
+            return
+        }
+
+        URLSession.shared.dataTask(with: url) { data, _, error in
+            guard let data = data, error == nil,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let tagName = json["tag_name"] as? String else {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
+
+            let latestVersion = tagName.hasPrefix("v") ? String(tagName.dropFirst()) : tagName
+            let isNewer = self.compareVersions(latestVersion, self.currentVersion) > 0
+
+            DispatchQueue.main.async {
+                completion(isNewer ? latestVersion : nil)
+            }
+        }.resume()
+    }
+
+    private func compareVersions(_ a: String, _ b: String) -> Int {
+        let aParts = a.components(separatedBy: ".").map { Int($0) ?? 0 }
+        let bParts = b.components(separatedBy: ".").map { Int($0) ?? 0 }
+        let count = max(aParts.count, bParts.count)
+        for i in 0..<count {
+            let av = i < aParts.count ? aParts[i] : 0
+            let bv = i < bParts.count ? bParts[i] : 0
+            if av > bv { return 1 }
+            if av < bv { return -1 }
+        }
+        return 0
+    }
+
+    func showResult() {
+        let version = currentVersion
+        check { latestVersion in
+            if let v = latestVersion {
+                let alert = NSAlert()
+                alert.messageText = "Update Available"
+                alert.informativeText = "llama-menubar v\(v) is available. Download from GitHub?"
+                alert.addButton(withTitle: "Download")
+                alert.addButton(withTitle: "Cancel")
+                if alert.runModal() == .alertFirstButtonReturn {
+                    guard let url = URL(string: "https://github.com/ivantonov/llama.cpp-macos-installer/releases/latest") else { return }
+                    NSWorkspace.shared.open(url)
+                }
+            } else {
+                let alert = NSAlert()
+                alert.messageText = "Up to Date"
+                alert.informativeText = "llama-menubar v\(version) is the latest version."
+                alert.addButton(withTitle: "OK")
+                alert.runModal()
+            }
+        }
     }
 }
 
@@ -378,7 +485,6 @@ final class OutputWindowController: NSObject, NSWindowDelegate {
         apply.action = #selector(applyClicked)
         close.target = self
         close.action = #selector(closeClicked)
-        // Show only the close button if no apply
         apply.isHidden = !showApplyInitially
     }
 
@@ -394,6 +500,15 @@ final class OutputWindowController: NSObject, NSWindowDelegate {
             .foregroundColor: NSColor.textColor,
         ])
         textView.textStorage?.append(attr)
+        textView.scrollToEndOfDocument(nil)
+    }
+
+    func setOutput(_ text: String) {
+        let attr = NSAttributedString(string: text, attributes: [
+            .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
+            .foregroundColor: NSColor.textColor,
+        ])
+        textView.textStorage?.setAttributedString(attr)
         textView.scrollToEndOfDocument(nil)
     }
 
@@ -422,7 +537,6 @@ final class OutputWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
-        // If user closed via the red X button, fire onFinish with false.
         if let cb = onFinish {
             cb(false)
             onFinish = nil
@@ -531,18 +645,23 @@ final class MenuBarController: NSObject {
 
         menu.addItem(.separator())
 
-        // Update
+        // App Update
+        let appUpdate = NSMenuItem(title: "Check for App Update...", action: #selector(checkAppUpdate), keyEquivalent: "")
+        appUpdate.target = self
+        menu.addItem(appUpdate)
+
+        // llama.cpp Update
         if UpdateManager.shared.isAvailable() {
-            let check = NSMenuItem(title: "Check for Update...", action: #selector(checkUpdate), keyEquivalent: "")
-            check.target = self
-            menu.addItem(check)
+            let checkLlama = NSMenuItem(title: "Check for llama.cpp Update...", action: #selector(checkLlamaUpdate), keyEquivalent: "")
+            checkLlama.target = self
+            menu.addItem(checkLlama)
 
-            let apply = NSMenuItem(title: "Apply Update...", action: #selector(applyUpdate), keyEquivalent: "")
-            apply.target = self
-            menu.addItem(apply)
-
-            menu.addItem(.separator())
+            let applyLlama = NSMenuItem(title: "Apply llama.cpp Update...", action: #selector(applyLlamaUpdate), keyEquivalent: "")
+            applyLlama.target = self
+            menu.addItem(applyLlama)
         }
+
+        menu.addItem(.separator())
 
         // Launch at Login
         let login = NSMenuItem(title: "Launch at Login",
@@ -591,11 +710,15 @@ final class MenuBarController: NSObject {
         try? task.run()
     }
 
-    @objc private func checkUpdate() {
+    @objc private func checkAppUpdate() {
+        AppUpdateManager.shared.showResult()
+    }
+
+    @objc private func checkLlamaUpdate() {
         UpdateManager.shared.checkUpdate()
     }
 
-    @objc private func applyUpdate() {
+    @objc private func applyLlamaUpdate() {
         UpdateManager.shared.applyUpdate()
     }
 

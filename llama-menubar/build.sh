@@ -2,6 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+VERSION="2.0.0"
 APP_NAME="llama-menubar"
 BUILD_ARM64=".build/arm64/release"
 BUILD_X86_64=".build/x86_64/release"
@@ -40,8 +41,10 @@ cat > "${APP_NAME}.app/Contents/Info.plist" <<EOF
     <string>com.llama.menubar</string>
     <key>CFBundleName</key>
     <string>llama-menubar</string>
+    <key>CFBundleShortVersionString</key>
+    <string>${VERSION}</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>${VERSION}</string>
     <key>CFBundleIconFile</key>
     <string>llama</string>
     <key>LSUIElement</key>

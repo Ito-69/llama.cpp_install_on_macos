@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 # Build the menu bar app and package it for GitHub Releases
-VERSION="1.0.0"
+VERSION="${1:-2.0.0}"
 OUTDIR="release-out"
 
 rm -rf "$OUTDIR"
@@ -19,12 +19,8 @@ ditto -c -k --sequesterRsrc --keepParent \
   "llama-menubar/llama-menubar.app" \
   "$OUTDIR/llama-menubar-$VERSION.zip"
 
-# Copy the installer script too
-cp install-llama.sh "$OUTDIR/"
-
 echo ""
 echo "  Release ready: $OUTDIR/"
-echo "    - llama-menubar-$VERSION.zip  (app bundle)"
-echo "    - install-llama.sh           (installer script)"
+echo "    - llama-menubar-$VERSION.zip"
 echo ""
-echo "  Upload both to GitHub Releases."
+echo "  Upload to GitHub Releases."
