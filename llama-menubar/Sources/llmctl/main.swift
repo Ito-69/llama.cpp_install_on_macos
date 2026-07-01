@@ -845,10 +845,24 @@ final class MenuBarController: NSObject {
             try? fm.removeItem(atPath: home + "/models")
         }
 
+        // Remove shell RC entries
+        for rcFile in [home + "/.zshrc", home + "/.bash_profile"] {
+            guard let content = try? String(contentsOfFile: rcFile, encoding: .utf8) else { continue }
+            let lines = content.components(separatedBy: .newlines)
+            var cleaned: [String] = []
+            var skip = false
+            for line in lines {
+                if line == "# llama.cpp (install-llama.sh)" { skip = true }
+                if !skip { cleaned.append(line) }
+                if skip && line.isEmpty { skip = false }
+            }
+            try? cleaned.joined(separator: "\n").write(toFile: rcFile, atomically: true, encoding: .utf8)
+        }
+
         // Show completion
         let done = NSAlert()
         done.messageText = "Uninstall Complete"
-        done.informativeText = "llama.cpp has been removed.\n\nTo finish, edit your shell RC file (~/.zshrc or ~/.bash_profile) and remove the \"# llama.cpp (install-llama.sh)\" section.\n\nThe app will now quit."
+        done.informativeText = "llama.cpp and all related files have been removed.\n\nThe app will now quit."
         done.addButton(withTitle: "OK")
         done.runModal()
 
