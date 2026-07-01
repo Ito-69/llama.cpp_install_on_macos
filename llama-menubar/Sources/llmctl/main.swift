@@ -118,6 +118,8 @@ final class LaunchAtLoginManager {
 final class UpdateManager: NSObject {
     static let shared = UpdateManager()
 
+    private var activeControllers: [OutputWindowController] = []
+
     private var scriptPath: String? {
         let saved = UserDefaults.standard.string(forKey: "installScriptPath")
         if let s = saved, FileManager.default.isExecutableFile(atPath: s) { return s }
@@ -208,12 +210,16 @@ final class UpdateManager: NSObject {
     private func runScript(_ path: String, args: [String], title: String, onComplete: ((String, Bool) -> Void)? = nil) {
         let isCheck = args.first == "--check-update"
         let controller = OutputWindowController(title: title, showApplyInitially: isCheck)
+        // Keep a strong reference to the controller so it isn't deallocated
+        // when this function returns. The window itself only holds the
+        // delegate weakly.
+        activeControllers.append(controller)
         controller.show()
         controller.appendText("Working…\n")
 
         let scriptDir = URL(fileURLWithPath: path).deletingLastPathComponent().path
 
-        DispatchQueue.global(qos: .userInitiated).async { [weak controller] in
+        DispatchQueue.global(qos: .userInitiated).async {
             let task = Process()
             task.executableURL = URL(fileURLWithPath: "/bin/bash")
             task.arguments = [path] + args
@@ -227,16 +233,14 @@ final class UpdateManager: NSObject {
                 try task.run()
             } catch {
                 DispatchQueue.main.async {
-                    controller?.appendText("\nFailed to start: \(error.localizedDescription)\n")
-                    controller?.finish(exitCode: -1, applyEnabled: false) { _ in
+                    controller.appendText("\nFailed to start: \(error.localizedDescription)\n")
+                    controller.finish(exitCode: -1, applyEnabled: false) { _ in
                         onComplete?(scriptDir, false)
                     }
                 }
                 return
             }
 
-            // Start reader threads — they block reading the pipe and stream
-            // chunks to the main thread as soon as data arrives.
             let outHandle = outPipe.fileHandleForReading
             let errHandle = errPipe.fileHandleForReading
 
@@ -246,7 +250,7 @@ final class UpdateManager: NSObject {
             let group = DispatchGroup()
 
             group.enter()
-            DispatchQueue.global(qos: .userInitiated).async { [weak controller] in
+            DispatchQueue.global(qos: .userInitiated).async {
                 while true {
                     let data = outHandle.availableData
                     if data.isEmpty { break }
@@ -254,14 +258,14 @@ final class UpdateManager: NSObject {
                         bufferLock.lock()
                         fullOut += s
                         bufferLock.unlock()
-                        DispatchQueue.main.async { controller?.appendText(s) }
+                        DispatchQueue.main.async { controller.appendText(s) }
                     }
                 }
                 group.leave()
             }
 
             group.enter()
-            DispatchQueue.global(qos: .userInitiated).async { [weak controller] in
+            DispatchQueue.global(qos: .userInitiated).async {
                 while true {
                     let data = errHandle.availableData
                     if data.isEmpty { break }
@@ -269,22 +273,21 @@ final class UpdateManager: NSObject {
                         bufferLock.lock()
                         fullErr += s
                         bufferLock.unlock()
-                        DispatchQueue.main.async { controller?.appendText(s) }
+                        DispatchQueue.main.async { controller.appendText(s) }
                     }
                 }
                 group.leave()
             }
 
             task.waitUntilExit()
-            // Pipe will close once the process exits and stdout/stderr are drained.
-            // Wait briefly for the reader threads to finish.
             _ = group.wait(timeout: .now() + 5)
 
             let exitCode = task.terminationStatus
             let updateAvailable = isCheck && fullOut.contains("newer version available")
 
             DispatchQueue.main.async {
-                controller?.finish(exitCode: exitCode, applyEnabled: updateAvailable) { applyClicked in
+                controller.finish(exitCode: exitCode, applyEnabled: updateAvailable) { [weak self] applyClicked in
+                    self?.activeControllers.removeAll { $0 === controller }
                     onComplete?(scriptDir, isCheck && applyClicked && updateAvailable)
                 }
             }
