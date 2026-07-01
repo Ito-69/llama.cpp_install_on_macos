@@ -891,9 +891,16 @@ final class MenuBarController: NSObject {
         // Show completion
         let done = NSAlert()
         done.messageText = "Uninstall Complete"
-        done.informativeText = "llama.cpp and all related files have been removed.\n\nThe app will now quit."
+        done.informativeText = "llama.cpp and all related files have been removed.\n\nThe app will now quit and remove itself from /Applications."
         done.addButton(withTitle: "OK")
         done.runModal()
+
+        // Self-destruct: remove the .app bundle after quitting
+        let bundlePath = Bundle.main.bundlePath
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/sh")
+        task.arguments = ["-c", "(sleep 1; rm -rf \"\(bundlePath)\") &"]
+        try? task.run()
 
         NSApplication.shared.terminate(nil)
     }
