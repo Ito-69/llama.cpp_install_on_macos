@@ -382,7 +382,7 @@ final class AppUpdateManager {
     }
 
     func check(completion: @escaping (String?) -> Void) {
-        guard let url = URL(string: "https://api.github.com/repos/ivantonov/llama.cpp-macos-installer/releases/latest") else {
+        guard let url = URL(string: "https://api.github.com/repos/Ito-69/llama.cpp_install_on_macos/releases/latest") else {
             completion(nil)
             return
         }
@@ -427,7 +427,7 @@ final class AppUpdateManager {
                 alert.addButton(withTitle: "Download")
                 alert.addButton(withTitle: "Cancel")
                 if alert.runModal() == .alertFirstButtonReturn {
-                    guard let url = URL(string: "https://github.com/ivantonov/llama.cpp-macos-installer/releases/latest") else { return }
+                    guard let url = URL(string: "https://github.com/Ito-69/llama.cpp_install_on_macos/releases/latest") else { return }
                     NSWorkspace.shared.open(url)
                 }
             } else {
