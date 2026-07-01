@@ -708,6 +708,13 @@ final class MenuBarController: NSObject {
 
         menu.addItem(.separator())
 
+        // Uninstall
+        let uninstall = NSMenuItem(title: "Uninstall...", action: #selector(uninstallAll), keyEquivalent: "")
+        uninstall.target = self
+        menu.addItem(uninstall)
+
+        menu.addItem(.separator())
+
         // Quit
         let quit = NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q")
         quit.target = self
@@ -786,6 +793,66 @@ final class MenuBarController: NSObject {
             alert.runModal()
         }
         refresh()
+    }
+
+    @objc private func uninstallAll() {
+        let alert = NSAlert()
+        alert.messageText = "Uninstall llama.cpp"
+        alert.informativeText = "This will remove:\n  • llama.cpp binaries and libraries\n  • LaunchAgent\n  • Configuration files\n  • App support data\n\nRemove downloaded models too?"
+        alert.addButton(withTitle: "Remove Everything")
+        alert.addButton(withTitle: "Keep Models")
+        alert.addButton(withTitle: "Cancel")
+
+        let choice = alert.runModal()
+        guard choice != .alertThirdButtonReturn else { return }
+        let removeModels = choice == .alertFirstButtonReturn
+
+        pollTimer?.invalidate()
+
+        let fm = FileManager.default
+        let home = NSHomeDirectory()
+
+        // Stop server and remove LaunchAgent
+        server.stopServer()
+        let uninstallAgent = Process()
+        uninstallAgent.executableURL = URL(fileURLWithPath: "/bin/bash")
+        uninstallAgent.arguments = [INSTALL_SCRIPT_PATH, "--uninstall-agent"]
+        try? uninstallAgent.run()
+        uninstallAgent.waitUntilExit()
+
+        // Remove binaries
+        if let items = try? fm.contentsOfDirectory(atPath: home + "/.local/bin") {
+            for name in items where name.hasPrefix("llama-") || name == "rpc-server" || name == "ggml-rpc-server" {
+                try? fm.removeItem(atPath: home + "/.local/bin/" + name)
+            }
+        }
+
+        // Remove libraries
+        if let items = try? fm.contentsOfDirectory(atPath: home + "/.local/lib") {
+            for name in items where name.hasPrefix("libggml") || name.hasPrefix("libllama") || name.hasPrefix("libmtmd") {
+                try? fm.removeItem(atPath: home + "/.local/lib/" + name)
+            }
+        }
+
+        // Remove config
+        try? fm.removeItem(atPath: home + "/.config/llama")
+
+        // Remove app support
+        try? fm.removeItem(atPath: APP_SUPPORT_DIR)
+
+        // Remove models
+        if removeModels {
+            try? fm.removeItem(atPath: home + "/models")
+        }
+
+        // Show completion
+        let done = NSAlert()
+        done.messageText = "Uninstall Complete"
+        done.informativeText = "llama.cpp has been removed.\n\nTo finish, edit your shell RC file (~/.zshrc or ~/.bash_profile) and remove the \"# llama.cpp (install-llama.sh)\" section.\n\nThe app will now quit."
+        done.addButton(withTitle: "OK")
+        done.runModal()
+
+        NSApplication.shared.terminate(nil)
     }
 
     @objc private func quitApp() {
