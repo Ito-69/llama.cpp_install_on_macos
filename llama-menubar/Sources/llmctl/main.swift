@@ -75,14 +75,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         InstallManager.shared.install { [weak self] success in
             DispatchQueue.main.async {
+                self?.showMenuBar()
                 if success {
-                    self?.showMenuBar()
+                    self?.menuBar?.ensureServerRunning()
                 } else {
                     let err = NSAlert()
                     err.messageText = "Installation incomplete"
                     err.informativeText = "Check the output for details. You can re-install later from the menu."
                     err.runModal()
-                    self?.showMenuBar()
                 }
             }
         }
@@ -193,6 +193,63 @@ final class LaunchAtLoginManager {
     }
 }
 
+// MARK: - Process Runner
+
+@discardableResult
+func runProcess(executable: String, arguments: [String], currentDirectory: String? = nil, outputCallback: ((String) -> Void)? = nil) -> (exitCode: Int32, fullOutput: String) {
+    let task = Process()
+    task.executableURL = URL(fileURLWithPath: executable)
+    task.arguments = arguments
+    var env = ProcessInfo.processInfo.environment
+    env["DYLD_LIBRARY_PATH"] = NSHomeDirectory() + "/.local/lib"
+    task.environment = env
+    let outPipe = Pipe()
+    let errPipe = Pipe()
+    task.standardOutput = outPipe
+    task.standardError = errPipe
+    if let dir = currentDirectory {
+        task.currentDirectoryURL = URL(fileURLWithPath: dir)
+    }
+
+    do {
+        try task.run()
+    } catch {
+        return (-1, "Failed to start: \(error.localizedDescription)")
+    }
+
+    let outHandle = outPipe.fileHandleForReading
+    let errHandle = errPipe.fileHandleForReading
+    var fullOutput = ""
+    let lock = NSLock()
+
+    outHandle.readabilityHandler = { handle in
+        let data = handle.availableData
+        guard !data.isEmpty, let s = String(data: data, encoding: .utf8) else { return }
+        lock.lock(); fullOutput += s; lock.unlock()
+        outputCallback?(s)
+    }
+
+    errHandle.readabilityHandler = { handle in
+        let data = handle.availableData
+        guard !data.isEmpty, let s = String(data: data, encoding: .utf8) else { return }
+        lock.lock(); fullOutput += s; lock.unlock()
+        outputCallback?(s)
+    }
+
+    task.waitUntilExit()
+    outHandle.readabilityHandler = nil
+    errHandle.readabilityHandler = nil
+
+    for handle in [outHandle, errHandle] {
+        if let rest = String(data: handle.readDataToEndOfFile(), encoding: .utf8), !rest.isEmpty {
+            lock.lock(); fullOutput += rest; lock.unlock()
+            outputCallback?(rest)
+        }
+    }
+
+    return (task.terminationStatus, fullOutput)
+}
+
 // MARK: - Install Manager
 
 final class InstallManager: NSObject {
@@ -203,26 +260,23 @@ final class InstallManager: NSObject {
         let controller = OutputWindowController(title: "Installing llama.cpp…", showApplyInitially: false)
         activeControllers.append(controller)
         controller.show()
-        controller.appendText("Installing…\n")
-
-        let scriptDir = URL(fileURLWithPath: INSTALL_SCRIPT_PATH).deletingLastPathComponent().path
+        let append: (String) -> Void = { s in DispatchQueue.main.async { controller.appendText(s) } }
 
         DispatchQueue.global(qos: .userInitiated).async {
-            let task = Process()
-            task.executableURL = URL(fileURLWithPath: "/bin/bash")
-            task.arguments = [INSTALL_SCRIPT_PATH]
-            let outPipe = Pipe()
-            let errPipe = Pipe()
-            task.standardOutput = outPipe
-            task.standardError = errPipe
-            task.currentDirectoryURL = URL(fileURLWithPath: scriptDir)
+            append("Installing…\n")
+            append("Preparing dependencies…\n")
 
-            do {
-                try task.run()
-            } catch {
+            // Ensure huggingface_hub is available and up to date
+            let (pipCode, _) = runProcess(
+                executable: "/usr/bin/pip3",
+                arguments: ["install", "-U", "huggingface_hub", "--user", "--quiet", "-q"],
+                outputCallback: nil
+            )
+
+            if pipCode != 0 {
+                append("\n⚠️  Failed to install required Python package.\n")
                 DispatchQueue.main.async {
-                    controller.appendText("\nFailed to start: \(error.localizedDescription)\n")
-                    controller.finish(exitCode: -1, applyEnabled: false) { _ in
+                    controller.finish(exitCode: pipCode, applyEnabled: false) { _ in
                         self.activeControllers.removeAll { $0 === controller }
                         completion(false)
                     }
@@ -230,18 +284,21 @@ final class InstallManager: NSObject {
                 return
             }
 
-            task.waitUntilExit()
-            let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
-            let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
-            var fullOutput = ""
-            if let s = String(data: outData, encoding: .utf8) { fullOutput += s }
-            if let s = String(data: errData, encoding: .utf8) { fullOutput += s }
+            // Run main install script
+            let scriptDir = URL(fileURLWithPath: INSTALL_SCRIPT_PATH).deletingLastPathComponent().path
 
-            let success = task.terminationStatus == 0
+            // Run main install script with LaunchAgent setup
+            let (exitCode, _) = runProcess(
+                executable: "/bin/bash",
+                arguments: [INSTALL_SCRIPT_PATH, "--install-agent"],
+                currentDirectory: scriptDir,
+                outputCallback: { append($0) }
+            )
+
+            let success = exitCode == 0
 
             DispatchQueue.main.async {
-                controller.setOutput(fullOutput)
-                controller.finish(exitCode: task.terminationStatus, applyEnabled: false) { _ in
+                controller.finish(exitCode: exitCode, applyEnabled: false) { _ in
                     self.activeControllers.removeAll { $0 === controller }
                     completion(success)
                 }
@@ -291,43 +348,21 @@ final class UpdateManager: NSObject {
         activeControllers.append(controller)
         controller.show()
         controller.appendText("Working…\n")
+        let append: (String) -> Void = { s in DispatchQueue.main.async { controller.appendText(s) } }
 
         let scriptDir = URL(fileURLWithPath: INSTALL_SCRIPT_PATH).deletingLastPathComponent().path
 
         DispatchQueue.global(qos: .userInitiated).async {
-            let task = Process()
-            task.executableURL = URL(fileURLWithPath: "/bin/bash")
-            task.arguments = [INSTALL_SCRIPT_PATH] + args
-            let outPipe = Pipe()
-            let errPipe = Pipe()
-            task.standardOutput = outPipe
-            task.standardError = errPipe
-            task.currentDirectoryURL = URL(fileURLWithPath: scriptDir)
+            let (exitCode, fullOut) = runProcess(
+                executable: "/bin/bash",
+                arguments: [INSTALL_SCRIPT_PATH] + args,
+                currentDirectory: scriptDir,
+                outputCallback: { append($0) }
+            )
 
-            do {
-                try task.run()
-            } catch {
-                DispatchQueue.main.async {
-                    controller.appendText("\nFailed to start: \(error.localizedDescription)\n")
-                    controller.finish(exitCode: -1, applyEnabled: false) { _ in
-                        onComplete?(false)
-                    }
-                }
-                return
-            }
-
-            task.waitUntilExit()
-            let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
-            let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
-            var fullOut = ""
-            if let s = String(data: outData, encoding: .utf8) { fullOut += s }
-            if let s = String(data: errData, encoding: .utf8) { fullOut += s }
-
-            let exitCode = task.terminationStatus
             let updateAvailable = isCheck && fullOut.contains("newer version available")
 
             DispatchQueue.main.async {
-                controller.setOutput(fullOut)
                 controller.finish(exitCode: exitCode, applyEnabled: updateAvailable) { applyClicked in
                     self.activeControllers.removeAll { $0 === controller }
                     onComplete?(isCheck && applyClicked && updateAvailable)
@@ -686,6 +721,14 @@ final class MenuBarController: NSObject {
     @objc private func openWebUI() {
         guard let url = URL(string: server.webUIURL) else { return }
         NSWorkspace.shared.open(url)
+    }
+
+    func ensureServerRunning() {
+        server.checkStatus()
+        if !server.isRunning {
+            server.startServer()
+            queueRefresh()
+        }
     }
 
     @objc private func startServer() {
