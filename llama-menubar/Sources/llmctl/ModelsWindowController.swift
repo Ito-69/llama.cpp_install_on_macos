@@ -223,15 +223,15 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
     // MARK: Browse tab
 
     private func buildBrowseTab() -> NSView {
-        let v = NSView(frame: NSRect(x: 0, y: 0, width: 688, height: 300))
+        let v = NSView(frame: NSRect(x: 0, y: 0, width: 688, height: 280))
         // Top toolbar: popup on left, search field on right
-        let modePopup = NSPopUpButton(frame: NSRect(x: 16, y: 262, width: 200, height: 24))
+        let modePopup = NSPopUpButton(frame: NSRect(x: 16, y: 244, width: 200, height: 24))
         modePopup.addItems(withTitles: ["Shortlist", "Search Hugging Face"])
         modePopup.target = self
         modePopup.action = #selector(browseModeChanged(_:))
         v.addSubview(modePopup)
 
-        searchField = NSSearchField(frame: NSRect(x: 232, y: 262, width: 440, height: 24))
+        searchField = NSSearchField(frame: NSRect(x: 232, y: 244, width: 440, height: 24))
         searchField.placeholderString = "Search GGUF models on Hugging Face"
         searchField.target = self
         searchField.action = #selector(performSearch)
@@ -240,14 +240,16 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
 
         // Search status (only shown in search mode)
         searchStatus = NSTextField(labelWithString: "Type a query and press Return.")
-        searchStatus.frame = NSRect(x: 16, y: 240, width: 656, height: 18)
+        searchStatus.frame = NSRect(x: 16, y: 222, width: 656, height: 18)
         searchStatus.font = NSFont.systemFont(ofSize: 11)
         searchStatus.textColor = .secondaryLabelColor
         searchStatus.isHidden = true
         v.addSubview(searchStatus)
 
         // Table area (below toolbar)
-        browseTable = NSTableView(frame: NSRect(x: 16, y: 16, width: 656, height: 240))
+        let browseScroll = NSScrollView(frame: NSRect(x: 16, y: 16, width: 656, height: 200))
+        browseTable = NSTableView(frame: browseScroll.bounds)
+        browseTable.autoresizingMask = [.width, .height]
         browseTable.allowsMultipleSelection = false
         browseTable.allowsEmptySelection = true
         browseTable.rowSizeStyle = .small
@@ -268,14 +270,15 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         browseTable.tag = 100
         browseTable.target = self
         browseTable.doubleAction = #selector(browseRowDoubleClicked)
-        let browseScroll = NSScrollView(frame: NSRect(x: 16, y: 16, width: 656, height: 220))
         browseScroll.documentView = browseTable
         browseScroll.hasVerticalScroller = true
         browseScroll.autoresizingMask = [.width, .height]
         browseContainerView = browseScroll
         v.addSubview(browseScroll)
 
-        searchTable = NSTableView(frame: NSRect(x: 16, y: 16, width: 656, height: 220))
+        let searchScroll = NSScrollView(frame: NSRect(x: 16, y: 16, width: 656, height: 200))
+        searchTable = NSTableView(frame: searchScroll.bounds)
+        searchTable.autoresizingMask = [.width, .height]
         searchTable.allowsMultipleSelection = false
         searchTable.allowsEmptySelection = true
         searchTable.rowSizeStyle = .small
@@ -296,7 +299,6 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         searchTable.tag = 101
         searchTable.target = self
         searchTable.doubleAction = #selector(searchRowDoubleClicked)
-        let searchScroll = NSScrollView(frame: NSRect(x: 16, y: 16, width: 656, height: 220))
         searchScroll.documentView = searchTable
         searchScroll.hasVerticalScroller = true
         searchScroll.autoresizingMask = [.width, .height]
