@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-VERSION="2.0.1"
+VERSION="2.0.2"
 APP_NAME="llama-menubar"
 BUILD_ARM64=".build/arm64/release"
 BUILD_X86_64=".build/x86_64/release"

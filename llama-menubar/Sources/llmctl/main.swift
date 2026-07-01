@@ -702,13 +702,6 @@ final class MenuBarController: NSObject {
 
         menu.addItem(.separator())
 
-        // Logs
-        let logs = NSMenuItem(title: "Tail Logs", action: #selector(tailLogs), keyEquivalent: "l")
-        logs.target = self
-        menu.addItem(logs)
-
-        menu.addItem(.separator())
-
         // App Update
         let appUpdate = NSMenuItem(title: "Check for App Update...", action: #selector(checkAppUpdate), keyEquivalent: "")
         appUpdate.target = self
@@ -743,6 +736,11 @@ final class MenuBarController: NSObject {
         menu.addItem(uninstall)
 
         menu.addItem(.separator())
+
+        // About
+        let about = NSMenuItem(title: "About llama-menubar", action: #selector(showAbout), keyEquivalent: "")
+        about.target = self
+        menu.addItem(about)
 
         // Quit
         let quit = NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q")
@@ -780,13 +778,6 @@ final class MenuBarController: NSObject {
     @objc private func restartServer() {
         server.restartServer()
         queueRefresh()
-    }
-
-    @objc private func tailLogs() {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        task.arguments = ["/Applications/Utilities/Console.app"]
-        try? task.run()
     }
 
     @objc private func checkAppUpdate() {
@@ -903,6 +894,15 @@ final class MenuBarController: NSObject {
         try? task.run()
 
         NSApplication.shared.terminate(nil)
+    }
+
+    @objc private func showAbout() {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let alert = NSAlert()
+        alert.messageText = "llama-menubar"
+        alert.informativeText = "Version \(version)\n\nA macOS menu bar app for llama.cpp.\n\nhttps://github.com/Ito-69/llama.cpp_install_on_macos"
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     @objc private func quitApp() {
