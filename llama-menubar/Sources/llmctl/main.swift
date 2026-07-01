@@ -96,11 +96,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 // MARK: - Server Manager
 
 final class ServerManager {
+    static let shared = ServerManager()
+
     private let launchAgentPlist = "\(NSHomeDirectory())/Library/LaunchAgents/com.llama.cpp.server.plist"
     private let launchAgentService = "gui/\(getuid())/com.llama.cpp.server"
 
     private(set) var isRunning = false
     private(set) var modelLabel = ""
+    private(set) var modelPath = ""
     private(set) var port = "8080"
 
     var onStatusChange: (() -> Void)?
@@ -121,6 +124,7 @@ final class ServerManager {
             switch parts[0] {
             case "PORT":                   port = parts[1]
             case "MODEL_LABEL":            modelLabel = parts[1].replacingOccurrences(of: "\"", with: "")
+            case "MODEL_PATH":             modelPath = parts[1].replacingOccurrences(of: "\"", with: "")
             default:                       break
             }
         }
@@ -151,6 +155,12 @@ final class ServerManager {
 
     func restartServer() {
         launchctl("kickstart", "-k", launchAgentService)
+    }
+
+    func reloadConfigAndRestart() {
+        loadConfig()
+        restartServer()
+        checkStatus()
     }
 
     private func launchctl(_ args: String...) {
@@ -612,7 +622,7 @@ final class OutputWindowController: NSObject, NSWindowDelegate {
 
 final class MenuBarController: NSObject {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    private let server = ServerManager()
+    private let server = ServerManager.shared
     private var pollTimer: Timer?
 
     override init() {
@@ -702,6 +712,11 @@ final class MenuBarController: NSObject {
 
         menu.addItem(.separator())
 
+        // Models window
+        let models = NSMenuItem(title: "Models…", action: #selector(openModels), keyEquivalent: "m")
+        models.target = self
+        menu.addItem(models)
+
         // App Update
         let appUpdate = NSMenuItem(title: "Check for App Update...", action: #selector(checkAppUpdate), keyEquivalent: "")
         appUpdate.target = self
@@ -755,6 +770,10 @@ final class MenuBarController: NSObject {
     @objc private func openWebUI() {
         guard let url = URL(string: server.webUIURL) else { return }
         NSWorkspace.shared.open(url)
+    }
+
+    @objc private func openModels() {
+        ModelsWindowController.shared.showWindow()
     }
 
     func ensureServerRunning() {
