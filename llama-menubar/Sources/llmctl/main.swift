@@ -223,26 +223,62 @@ final class UpdateManager: NSObject {
             task.standardError = errPipe
             task.currentDirectoryURL = URL(fileURLWithPath: scriptDir)
 
+            do {
+                try task.run()
+            } catch {
+                DispatchQueue.main.async {
+                    controller?.appendText("\nFailed to start: \(error.localizedDescription)\n")
+                    controller?.finish(exitCode: -1, applyEnabled: false) { _ in
+                        onComplete?(scriptDir, false)
+                    }
+                }
+                return
+            }
+
+            // Start reader threads — they block reading the pipe and stream
+            // chunks to the main thread as soon as data arrives.
             let outHandle = outPipe.fileHandleForReading
             let errHandle = errPipe.fileHandleForReading
 
             var fullOut = ""
-            outHandle.readabilityHandler = { fh in
-                let data = fh.availableData
-                guard !data.isEmpty, let s = String(data: data, encoding: .utf8) else { return }
-                fullOut += s
-                DispatchQueue.main.async { controller?.appendText(s) }
-            }
-            errHandle.readabilityHandler = { fh in
-                let data = fh.availableData
-                guard !data.isEmpty, let s = String(data: data, encoding: .utf8) else { return }
-                DispatchQueue.main.async { controller?.appendText(s) }
+            var fullErr = ""
+            let bufferLock = NSLock()
+            let group = DispatchGroup()
+
+            group.enter()
+            DispatchQueue.global(qos: .userInitiated).async { [weak controller] in
+                while true {
+                    let data = outHandle.availableData
+                    if data.isEmpty { break }
+                    if let s = String(data: data, encoding: .utf8) {
+                        bufferLock.lock()
+                        fullOut += s
+                        bufferLock.unlock()
+                        DispatchQueue.main.async { controller?.appendText(s) }
+                    }
+                }
+                group.leave()
             }
 
-            try? task.run()
+            group.enter()
+            DispatchQueue.global(qos: .userInitiated).async { [weak controller] in
+                while true {
+                    let data = errHandle.availableData
+                    if data.isEmpty { break }
+                    if let s = String(data: data, encoding: .utf8) {
+                        bufferLock.lock()
+                        fullErr += s
+                        bufferLock.unlock()
+                        DispatchQueue.main.async { controller?.appendText(s) }
+                    }
+                }
+                group.leave()
+            }
+
             task.waitUntilExit()
-            outHandle.readabilityHandler = nil
-            errHandle.readabilityHandler = nil
+            // Pipe will close once the process exits and stdout/stderr are drained.
+            // Wait briefly for the reader threads to finish.
+            _ = group.wait(timeout: .now() + 5)
 
             let exitCode = task.terminationStatus
             let updateAvailable = isCheck && fullOut.contains("newer version available")
@@ -253,6 +289,10 @@ final class UpdateManager: NSObject {
                 }
             }
         }
+    }
+
+    private func escapeForShell(_ s: String) -> String {
+        return "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
 
