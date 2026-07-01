@@ -231,7 +231,7 @@ final class UpdateManager: NSObject {
                                                      text: output.isEmpty ? "Done (no output)" : output,
                                                      updateAvailable: updateAvailable)
                     ?? .alertSecondButtonReturn
-                let didApply = isCheck && response == .alertSecondButtonReturn && updateAvailable
+                let didApply = isCheck && response == .alertFirstButtonReturn && updateAvailable
                 onComplete?(scriptDir, didApply)
             }
         }
