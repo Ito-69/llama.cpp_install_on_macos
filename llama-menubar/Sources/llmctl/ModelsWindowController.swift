@@ -61,9 +61,11 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
     private var window: NSPanel!
     private var headerLabel: NSTextField!
     private var tabView: NSTabView!
+    private var descriptionLabel: NSTextField!
     private var progressBar: NSProgressIndicator!
     private var progressLabel: NSTextField!
     private var logTextView: NSTextView!
+    private var logScroll: NSScrollView!
     private var cancelButton: NSButton!
     private var closeButton: NSButton!
 
@@ -102,55 +104,47 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
 
     private func buildWindow() {
         let w = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 720, height: 500),
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 540),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered, defer: false
         )
         w.title = "Models"
         w.isFloatingPanel = true
         w.hidesOnDeactivate = false
-        w.minSize = NSSize(width: 640, height: 460)
+        w.minSize = NSSize(width: 640, height: 500)
         w.delegate = self
+        w.center()
 
         let content = NSView(frame: w.contentView!.bounds)
         content.autoresizingMask = [.width, .height]
 
         // Header
         headerLabel = NSTextField(labelWithString: "Active: —")
-        headerLabel.frame = NSRect(x: 16, y: 460, width: 688, height: 20)
+        headerLabel.frame = NSRect(x: 16, y: 500, width: 688, height: 20)
         headerLabel.font = NSFont.boldSystemFont(ofSize: 12)
         headerLabel.autoresizingMask = [.width, .minYMargin]
 
         // Tab view
-        tabView = NSTabView(frame: NSRect(x: 16, y: 160, width: 688, height: 290))
+        let tabHeight: CGFloat = 320
+        tabView = NSTabView(frame: NSRect(x: 16, y: 170, width: 688, height: tabHeight))
         tabView.autoresizingMask = [.width, .height, .minYMargin]
 
-        let activeTab = buildActiveTab()
-        tabView.addTabViewItem(NSTabViewItem(viewController: NSViewController()).also {
-            $0.label = "Active"
-            $0.view = activeTab
-        })
+        addTab("Active", view: buildActiveTab())
+        addTab("Browse", view: buildBrowseTab())
+        addTab("Installed", view: buildInstalledTab())
+        addTab("Install from URL", view: buildURLTab())
+        tabView.selectTabViewItem(at: 0)
 
-        let browseTab = buildBrowseTab()
-        tabView.addTabViewItem(NSTabViewItem(viewController: NSViewController()).also {
-            $0.label = "Browse"
-            $0.view = browseTab
-        })
-
-        let installedTab = buildInstalledTab()
-        tabView.addTabViewItem(NSTabViewItem(viewController: NSViewController()).also {
-            $0.label = "Installed"
-            $0.view = installedTab
-        })
-
-        let urlTab = buildURLTab()
-        tabView.addTabViewItem(NSTabViewItem(viewController: NSViewController()).also {
-            $0.label = "Install from URL"
-            $0.view = urlTab
-        })
+        // Description / status panel (below tabs)
+        descriptionLabel = NSTextField(wrappingLabelWithString: "")
+        descriptionLabel.frame = NSRect(x: 16, y: 110, width: 688, height: 50)
+        descriptionLabel.font = NSFont.systemFont(ofSize: 11)
+        descriptionLabel.textColor = .secondaryLabelColor
+        descriptionLabel.isHidden = true
+        descriptionLabel.autoresizingMask = [.width, .minYMargin]
 
         // Footer
-        progressBar = NSProgressIndicator(frame: NSRect(x: 16, y: 110, width: 460, height: 14))
+        progressBar = NSProgressIndicator(frame: NSRect(x: 16, y: 86, width: 568, height: 14))
         progressBar.autoresizingMask = [.width, .minYMargin]
         progressBar.isIndeterminate = false
         progressBar.minValue = 0
@@ -159,16 +153,17 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         progressBar.isHidden = true
 
         progressLabel = NSTextField(labelWithString: "")
-        progressLabel.frame = NSRect(x: 16, y: 86, width: 688, height: 18)
+        progressLabel.frame = NSRect(x: 16, y: 64, width: 688, height: 18)
         progressLabel.font = NSFont.systemFont(ofSize: 11)
         progressLabel.textColor = .secondaryLabelColor
         progressLabel.autoresizingMask = [.width, .minYMargin]
         progressLabel.isHidden = true
 
-        let logScroll = NSScrollView(frame: NSRect(x: 16, y: 16, width: 568, height: 64))
+        let logScroll = NSScrollView(frame: NSRect(x: 16, y: 16, width: 568, height: 42))
         logScroll.autoresizingMask = [.width, .minYMargin]
         logScroll.hasVerticalScroller = true
         logScroll.borderType = .bezelBorder
+        logScroll.isHidden = true
         let tv = NSTextView(frame: logScroll.bounds)
         tv.autoresizingMask = [.width, .height]
         tv.isEditable = false
@@ -179,6 +174,7 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         tv.isVerticallyResizable = true
         tv.isHorizontallyResizable = true
         logScroll.documentView = tv
+        self.logScroll = logScroll
         logTextView = tv
 
         cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancelDownload))
@@ -194,6 +190,7 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
 
         content.addSubview(headerLabel)
         content.addSubview(tabView)
+        content.addSubview(descriptionLabel)
         content.addSubview(progressBar)
         content.addSubview(progressLabel)
         content.addSubview(logScroll)
@@ -202,6 +199,13 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
 
         w.contentView = content
         window = w
+    }
+
+    private func addTab(_ label: String, view: NSView) {
+        let item = NSTabViewItem()
+        item.label = label
+        item.view = view
+        tabView.addTabViewItem(item)
     }
 
     private func buildActiveTab() -> NSView {
@@ -219,16 +223,31 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
     // MARK: Browse tab
 
     private func buildBrowseTab() -> NSView {
-        let v = NSView(frame: NSRect(x: 0, y: 0, width: 688, height: 280))
-        let modePopup = NSPopUpButton(frame: NSRect(x: 16, y: 248, width: 200, height: 24))
+        let v = NSView(frame: NSRect(x: 0, y: 0, width: 688, height: 300))
+        // Top toolbar: popup on left, search field on right
+        let modePopup = NSPopUpButton(frame: NSRect(x: 16, y: 262, width: 200, height: 24))
         modePopup.addItems(withTitles: ["Shortlist", "Search Hugging Face"])
         modePopup.target = self
         modePopup.action = #selector(browseModeChanged(_:))
         v.addSubview(modePopup)
 
-        // Shortlist table
-        browseTable = NSTableView(frame: NSRect(x: 16, y: 16, width: 656, height: 220))
-        browseTable.autoresizingMask = [.width, .height]
+        searchField = NSSearchField(frame: NSRect(x: 232, y: 262, width: 440, height: 24))
+        searchField.placeholderString = "Search GGUF models on Hugging Face"
+        searchField.target = self
+        searchField.action = #selector(performSearch)
+        searchField.isHidden = true
+        v.addSubview(searchField)
+
+        // Search status (only shown in search mode)
+        searchStatus = NSTextField(labelWithString: "Type a query and press Return.")
+        searchStatus.frame = NSRect(x: 16, y: 240, width: 656, height: 18)
+        searchStatus.font = NSFont.systemFont(ofSize: 11)
+        searchStatus.textColor = .secondaryLabelColor
+        searchStatus.isHidden = true
+        v.addSubview(searchStatus)
+
+        // Table area (below toolbar)
+        browseTable = NSTableView(frame: NSRect(x: 16, y: 16, width: 656, height: 240))
         browseTable.allowsMultipleSelection = false
         browseTable.allowsEmptySelection = true
         browseTable.rowSizeStyle = .small
@@ -256,23 +275,7 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         browseContainerView = browseScroll
         v.addSubview(browseScroll)
 
-        // Search table (hidden by default)
-        searchField = NSSearchField(frame: NSRect(x: 232, y: 248, width: 440, height: 24))
-        searchField.placeholderString = "Search GGUF models on Hugging Face"
-        searchField.target = self
-        searchField.action = #selector(performSearch)
-        searchField.isHidden = true
-        v.addSubview(searchField)
-
-        searchStatus = NSTextField(labelWithString: "Type a query and press Return.")
-        searchStatus.frame = NSRect(x: 16, y: 218, width: 656, height: 18)
-        searchStatus.font = NSFont.systemFont(ofSize: 11)
-        searchStatus.textColor = .secondaryLabelColor
-        searchStatus.isHidden = true
-        v.addSubview(searchStatus)
-
         searchTable = NSTableView(frame: NSRect(x: 16, y: 16, width: 656, height: 220))
-        searchTable.autoresizingMask = [.width, .height]
         searchTable.allowsMultipleSelection = false
         searchTable.allowsEmptySelection = true
         searchTable.rowSizeStyle = .small
@@ -520,6 +523,11 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
             return
         }
         let s = ServerManager.shared
+        // Strip trailing "(~X.X GB)" from label so we don't double-print size
+        var label = s.modelLabel
+        if let r = label.range(of: #"\s*\(~[\d.]+ GB\)$"#, options: .regularExpression) {
+            label.removeSubrange(r)
+        }
         let sizeStr: String
         let path = s.modelPath
         if !path.isEmpty, FileManager.default.fileExists(atPath: path) {
@@ -529,7 +537,7 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
             sizeStr = ""
         }
         let status = s.isRunning ? "running" : "stopped"
-        headerLabel.stringValue = "Active: \(s.modelLabel.isEmpty ? "—" : s.modelLabel)\(sizeStr) — \(status)"
+        headerLabel.stringValue = "Active: \(label.isEmpty ? "—" : label)\(sizeStr) — \(status)"
     }
 
     func refreshInstalled() {
@@ -611,6 +619,8 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         progressBar.doubleValue = 0
         progressBar.isHidden = false
         progressLabel.isHidden = false
+        logScroll.isHidden = false
+        descriptionLabel.isHidden = true
         cancelButton.isHidden = false
         closeButton.isHidden = true
         progressLabel.stringValue = "Downloading \(file)…"
@@ -646,6 +656,7 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
                 self.progressBar.isHidden = true
                 self.cancelButton.isHidden = true
                 self.closeButton.isHidden = false
+                self.logScroll.isHidden = true
                 if code == 0 {
                     self.progressLabel.stringValue = "Download finished."
                     self.afterDownload(repo: repo, file: file, label: label)
@@ -700,6 +711,32 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
 // MARK: - NSTableView DataSource / Delegate
 
 extension ModelsWindowController: NSTableViewDataSource, NSTableViewDelegate {
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        guard let table = notification.object as? NSTableView else { return }
+        let row = table.selectedRow
+        if row < 0 {
+            descriptionLabel.stringValue = ""
+            descriptionLabel.isHidden = true
+            return
+        }
+        switch table.tag {
+        case 100:
+            let m = browseData[row]
+            descriptionLabel.stringValue = "Repo: \(m.id)  •  ~\(m.sizeGB) GB  •  \(m.description)"
+            descriptionLabel.isHidden = false
+        case 101:
+            let m = searchData[row]
+            descriptionLabel.stringValue = "Repo: \(m.id)  •  Downloads: \(m.downloads)"
+            descriptionLabel.isHidden = false
+        case 102:
+            let m = ModelManager.shared.listInstalled()[row]
+            descriptionLabel.stringValue = (m.isActive ? "Active  •  " : "") + "\(m.filename)  •  \(ModelsWindowController.formatSize(m.size))"
+            descriptionLabel.isHidden = false
+        default:
+            descriptionLabel.isHidden = true
+        }
+    }
+
     func numberOfRows(in tableView: NSTableView) -> Int {
         switch tableView.tag {
         case 100: return browseData.count
