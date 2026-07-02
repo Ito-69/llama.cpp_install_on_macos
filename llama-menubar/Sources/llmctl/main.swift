@@ -803,11 +803,6 @@ final class MenuBarController: NSObject {
             checkLlama.target = self
             checkLlama.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: nil)
             menu.addItem(checkLlama)
-
-            let applyLlama = NSMenuItem(title: "Apply llama.cpp Update...", action: #selector(applyLlamaUpdate), keyEquivalent: "")
-            applyLlama.target = self
-            applyLlama.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil)
-            menu.addItem(applyLlama)
         }
 
         menu.addItem(.separator())
