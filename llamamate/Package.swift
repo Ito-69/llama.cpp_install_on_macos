@@ -2,7 +2,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "llama-menubar",
+    name: "llamamate",
     platforms: [
         .macOS(.v13)
     ],

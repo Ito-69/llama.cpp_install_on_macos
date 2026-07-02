@@ -149,7 +149,7 @@ When you apply settings, the window shows an estimate of model + context RAM vs 
 
 ```bash
 # Build the universal .app
-cd llama-menubar
+cd llamamate
 ./build.sh
 
 # Copy to /Applications

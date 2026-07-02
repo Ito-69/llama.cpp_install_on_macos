@@ -9,6 +9,9 @@ llama-b*.tar.xz
 # Extraction temp dirs
 .llama-extract-*
 
+# Kilo plans and config (local dev)
+.kilo/
+
 # macOS
 .DS_Store
 ._*

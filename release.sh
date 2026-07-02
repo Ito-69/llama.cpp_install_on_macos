@@ -11,7 +11,7 @@ mkdir -p "$OUTDIR"
 
 # Build the app
 echo "==> Building LlamaMate.app..."
-(cd llama-menubar && ./build.sh)
+(cd llamamate && ./build.sh)
 
 # Create the release DMG
 echo "==> Packaging LlamaMate.dmg..."
@@ -20,7 +20,7 @@ cleanup() { rm -rf "$TMP_DIR"; }
 trap cleanup EXIT
 
 ln -s /Applications "$TMP_DIR/Applications"
-cp -R "llama-menubar/LlamaMate.app" "$TMP_DIR/LlamaMate.app"
+cp -R "llamamate/LlamaMate.app" "$TMP_DIR/LlamaMate.app"
 
 hdiutil create -volname "LlamaMate v$VERSION" \
   -srcfolder "$TMP_DIR" \
