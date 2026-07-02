@@ -104,14 +104,14 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
 
     private func buildWindow() {
         let w = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 720, height: 540),
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 400),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered, defer: false
         )
         w.title = "Models"
         w.isFloatingPanel = true
         w.hidesOnDeactivate = false
-        w.minSize = NSSize(width: 640, height: 500)
+        w.minSize = NSSize(width: 640, height: 380)
         w.delegate = self
         w.center()
 
@@ -120,14 +120,14 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
 
         // Header
         headerLabel = NSTextField(labelWithString: "Active: —")
-        headerLabel.frame = NSRect(x: 16, y: 500, width: 688, height: 20)
+        headerLabel.frame = NSRect(x: 16, y: 360, width: 688, height: 20)
         headerLabel.font = NSFont.boldSystemFont(ofSize: 12)
         headerLabel.autoresizingMask = [.width, .minYMargin]
 
         // Tab view
-        let tabHeight: CGFloat = 320
-        tabView = NSTabView(frame: NSRect(x: 16, y: 170, width: 688, height: tabHeight))
-        tabView.autoresizingMask = [.width, .height, .minYMargin]
+        let tabHeight: CGFloat = 330
+        tabView = NSTabView(frame: NSRect(x: 16, y: 20, width: 688, height: tabHeight))
+        tabView.autoresizingMask = [.width, .height]
 
         addTab("Active", view: buildActiveTab())
         addTab("Browse", view: buildBrowseTab())
@@ -209,7 +209,7 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
     }
 
     private func buildActiveTab() -> NSView {
-        let v = NSView(frame: NSRect(x: 0, y: 0, width: 688, height: 280))
+        let v = NSView(frame: NSRect(x: 0, y: 0, width: 688, height: 320))
         let lbl = NSTextField(labelWithString: "Current active model is shown in the header above.\n\nTo change it:\n  • Click Browse to pick a new model from Hugging Face\n  • Click Installed to switch to a model you already downloaded\n  • Click Install from URL if you have a specific repo URL")
         lbl.frame = NSRect(x: 16, y: 16, width: 656, height: 248)
         lbl.font = NSFont.systemFont(ofSize: 12)
@@ -223,7 +223,7 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
     // MARK: Browse tab
 
     private func buildBrowseTab() -> NSView {
-        let v = NSView(frame: NSRect(x: 0, y: 0, width: 688, height: 280))
+        let v = NSView(frame: NSRect(x: 0, y: 0, width: 688, height: 320))
         // Top toolbar: popup on left, search field on right
         let modePopup = NSPopUpButton(frame: NSRect(x: 16, y: 244, width: 200, height: 24))
         modePopup.addItems(withTitles: ["Shortlist", "Search Hugging Face"])
@@ -353,7 +353,7 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
     // MARK: Installed tab
 
     private func buildInstalledTab() -> NSView {
-        let v = NSView(frame: NSRect(x: 0, y: 0, width: 688, height: 280))
+        let v = NSView(frame: NSRect(x: 0, y: 0, width: 688, height: 320))
 
         installedStatus = NSTextField(labelWithString: "")
         installedStatus.frame = NSRect(x: 16, y: 248, width: 656, height: 18)
@@ -452,7 +452,7 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
     // MARK: URL tab
 
     private func buildURLTab() -> NSView {
-        let v = NSView(frame: NSRect(x: 0, y: 0, width: 688, height: 280))
+        let v = NSView(frame: NSRect(x: 0, y: 0, width: 688, height: 320))
         let help = NSTextField(labelWithString: "Paste a Hugging Face URL or repo id. Examples:")
         help.frame = NSRect(x: 16, y: 248, width: 656, height: 18)
         help.font = NSFont.systemFont(ofSize: 11)
