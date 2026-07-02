@@ -103,8 +103,19 @@ final class ServerManager {
 
     private(set) var isRunning = false
     private(set) var modelLabel = ""
+    private(set) var modelRepo = ""
+    private(set) var modelFile = ""
     private(set) var modelPath = ""
     private(set) var port = "8080"
+    private(set) var host = "0.0.0.0"
+    private(set) var context = "8192"
+    private(set) var ngl = "40"
+    private(set) var fa = "1"
+    private(set) var ctk = "q8_0"
+    private(set) var ctv = "q8_0"
+    private(set) var threads = "0"
+    private(set) var batchSize = "512"
+    private(set) var profile = "balanced"
 
     var onStatusChange: (() -> Void)?
 
@@ -112,6 +123,37 @@ final class ServerManager {
 
     init() {
         loadConfig()
+    }
+
+    static func isAppleSilicon() -> Bool {
+        var hw: Int = 0
+        var size = MemoryLayout<Int>.size
+        sysctlbyname("hw.optional.arm64", &hw, &size, nil, 0)
+        return hw != 0
+    }
+
+    func applyProfile(_ profile: String) {
+        self.profile = profile
+        let isAS = ServerManager.isAppleSilicon()
+        switch profile {
+        case "fast":
+            ngl = isAS ? "99" : "1"
+            fa = isAS ? "1" : "0"
+            ctk = isAS ? "q8_0" : "f16"
+            ctv = isAS ? "q8_0" : "f16"
+        case "balanced":
+            ngl = isAS ? "40" : "0"
+            fa = isAS ? "1" : "0"
+            ctk = isAS ? "q8_0" : "f16"
+            ctv = isAS ? "q8_0" : "f16"
+        case "accurate":
+            ngl = isAS ? "99" : "0"
+            fa = "0"
+            ctk = "f16"
+            ctv = "f16"
+        default:
+            break
+        }
     }
 
     private func loadConfig() {
@@ -122,10 +164,21 @@ final class ServerManager {
             }
             guard parts.count == 2 else { continue }
             switch parts[0] {
-            case "PORT":                   port = parts[1]
-            case "MODEL_LABEL":            modelLabel = parts[1].replacingOccurrences(of: "\"", with: "")
-            case "MODEL_PATH":             modelPath = parts[1].replacingOccurrences(of: "\"", with: "")
-            default:                       break
+            case "PORT":        port = parts[1]
+            case "CONTEXT":     context = parts[1]
+            case "HOST":        host = parts[1].replacingOccurrences(of: "\"", with: "")
+            case "MODEL_LABEL": modelLabel = parts[1].replacingOccurrences(of: "\"", with: "")
+            case "MODEL_REPO":  modelRepo = parts[1].replacingOccurrences(of: "\"", with: "")
+            case "MODEL_FILE":  modelFile = parts[1].replacingOccurrences(of: "\"", with: "")
+            case "MODEL_PATH":  modelPath = parts[1].replacingOccurrences(of: "\"", with: "")
+            case "NGL":         ngl = parts[1]
+            case "FA":          fa = parts[1]
+            case "CTK":         ctk = parts[1].replacingOccurrences(of: "\"", with: "")
+            case "CTV":         ctv = parts[1].replacingOccurrences(of: "\"", with: "")
+            case "THREADS":     threads = parts[1]
+            case "BATCH_SIZE":  batchSize = parts[1]
+            case "PROFILE":     profile = parts[1].replacingOccurrences(of: "\"", with: "")
+            default:            break
             }
         }
     }
@@ -717,6 +770,11 @@ final class MenuBarController: NSObject {
         models.target = self
         menu.addItem(models)
 
+        // Server Settings
+        let settings = NSMenuItem(title: "Server Settings…", action: #selector(openSettings), keyEquivalent: "")
+        settings.target = self
+        menu.addItem(settings)
+
         // App Update
         let appUpdate = NSMenuItem(title: "Check for App Update...", action: #selector(checkAppUpdate), keyEquivalent: "")
         appUpdate.target = self
@@ -774,6 +832,10 @@ final class MenuBarController: NSObject {
 
     @objc private func openModels() {
         ModelsWindowController.shared.showWindow()
+    }
+
+    @objc private func openSettings() {
+        SettingsWindowController.shared.showWindow()
     }
 
     func ensureServerRunning() {

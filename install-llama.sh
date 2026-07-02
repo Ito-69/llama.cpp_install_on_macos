@@ -275,6 +275,13 @@ MODEL_PATH="${MODEL_PATH}"
 PORT=${PORT}
 CONTEXT=${CONTEXT}
 HOST="${HOST}"
+NGL=${NGL:-40}
+FA=${FA:-1}
+CTK="${CTK:-q8_0}"
+CTV="${CTV:-q8_0}"
+THREADS=${THREADS:-0}
+BATCH_SIZE=${BATCH_SIZE:-512}
+PROFILE="${PROFILE:-balanced}"
 EOF
 }
 
@@ -1008,13 +1015,33 @@ write_start_script() {
 set -euo pipefail
 CONFIG="${HOME}/.config/llama/server.conf"
 [[ -f "$CONFIG" ]] && source "$CONFIG"
+
+# ── RAM safety check ────────────────────────────────────────────────────
+TOTAL_RAM=$(sysctl -n hw.memsize 2>/dev/null || echo 0)
+MODEL_SIZE=$(stat -f%z "${MODEL_PATH:-/dev/null}" 2>/dev/null || echo 0)
+# Rough KV cache estimate: ~30% of model size at 8192 context
+CTX_RAM=$(( MODEL_SIZE / 3 ))
+NEEDED=$(( MODEL_SIZE + CTX_RAM ))
+if [ "$TOTAL_RAM" -gt 0 ] && [ "$NEEDED" -gt "$TOTAL_RAM" ]; then
+  NEEDED_GB=$(( NEEDED / 1073741824 ))
+  TOTAL_GB=$(( TOTAL_RAM / 1073741824 ))
+  echo "[llama-menubar] WARNING: Model needs ~${NEEDED_GB} GB RAM but system has ${TOTAL_GB} GB." >&2
+  echo "[llama-menubar] The server may be killed by macOS memory pressure." >&2
+fi
+
 export PATH="${HOME}/.local/bin:${PATH}"
 export DYLD_LIBRARY_PATH="${HOME}/.local/lib:${DYLD_LIBRARY_PATH:-}"
 exec "${HOME}/.local/bin/llama-server" \
   -m "${MODEL_PATH}" \
   -c "${CONTEXT}" \
   --port "${PORT}" \
-  --host "${HOST}"
+  --host "${HOST}" \
+  -ngl "${NGL:-40}" \
+  -fa "${FA:-0}" \
+  -ctk "${CTK:-f16}" \
+  -ctv "${CTV:-f16}" \
+  -t "${THREADS:-0}" \
+  -b "${BATCH_SIZE:-512}"
 SCRIPT
   chmod +x "$START_SCRIPT"
   ok "Start script: ${START_SCRIPT}"
