@@ -7,7 +7,7 @@ A fully automated installer, updater, and manager for [llama.cpp](https://github
 llama.cpp releases ship as bare tarballs — no installer, no PATH setup, no
 Gatekeeper handling, no auto-start, no easy update path. Every new build meant
 the same manual ritual: download, extract, copy files, fix macOS security warnings,
-update the shell RC, restart the server. **llama-menubar** wraps the entire
+update the shell RC, restart the server. **LlamaMate** wraps the entire
 process into a single `.app` so you never think about it again.
 
 ## Features
@@ -28,8 +28,8 @@ process into a single `.app` so you never think about it again.
 
 ### Install
 
-1. Download `llama-menubar-2.x.x.dmg` from [GitHub Releases](https://github.com/Ito-69/llama.cpp_install_on_macos/releases)
-2. Open the `.dmg` and drag `llama-menubar.app` to `/Applications`
+1. Download `LlamaMate-2.x.x.dmg` from [GitHub Releases](https://github.com/Ito-69/llama.cpp_install_on_macos/releases)
+2. Open the `.dmg` and drag `LlamaMate.app` to `/Applications`
 3. **Right-click → Open** the first time (because the app is not notarized)
 4. Click **Install** in the welcome dialog
 
@@ -66,12 +66,13 @@ The app lives in your menu bar with a green llama icon (faded = stopped, full = 
 | `Start Server` / `Stop Server` / `Restart Server` | Control the llama-server LaunchAgent |
 | `Models…` | Open the Models window (browse, download, activate, delete) |
 | `Server Settings…` | Open the Server Settings window (profiles, GPU layers, context, flash attention, KV cache, threads, batch size, port) |
-| `Check for App Update...` | Check for a newer llama-menubar release on GitHub |
+| `View Server Logs…` | Open the Log Viewer (auto-refreshing tail of `~/Library/Logs/llama-server.log`) |
+| `Check for App Update...` | Check for a newer LlamaMate release on GitHub |
 | `Check for llama.cpp Update...` | Check for a newer llama.cpp build |
 | `Apply llama.cpp Update...` | Download and install the latest llama.cpp build |
 | `Launch at Login` | Toggle auto-start of the menu bar app itself |
 | `Uninstall...` | Remove everything (with option to keep models) |
-| `About llama-menubar` | Show version and GitHub link |
+| `About LlamaMate` | Show version and GitHub link |
 | `Quit` | Exit the menu bar app (⌘Q) |
 
 The status icon polls every 5 seconds.
@@ -152,14 +153,14 @@ cd llama-menubar
 ./build.sh
 
 # Copy to /Applications
-cp -r llama-menubar.app /Applications/
+cp -r LlamaMate.app /Applications/
 
 # Open
-open /Applications/llama-menubar.app
+open /Applications/LlamaMate.app
 ```
 
 Build outputs:
-- `llama-menubar.app` — universal binary (arm64 + x86_64), ad-hoc codesigned
+- `LlamaMate.app` — universal binary (arm64 + x86_64), ad-hoc codesigned
 - macOS 13+ required
 
 ## Files & Directories
@@ -170,7 +171,7 @@ Build outputs:
 | `~/.local/lib/` | Shared libraries (`libllama*.dylib`, `libggml*.dylib`) |
 | `~/models/` | GGUF model files |
 | `~/.config/llama/server.conf` | Server configuration |
-| `~/Library/Application Support/llama-menubar/` | App support (bundled script) |
+| `~/Library/Application Support/LlamaMate/` | App support (bundled script) |
 | `~/Library/LaunchAgents/com.llama.cpp.server.plist` | LaunchAgent (auto-start server) |
 | `~/Library/Logs/llama-server.log` | Server stdout (background mode) |
 | `~/Library/Logs/llama-server.err.log` | Server stderr (background mode) |

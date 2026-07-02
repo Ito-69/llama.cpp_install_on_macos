@@ -10,25 +10,25 @@ rm -rf "$OUTDIR"
 mkdir -p "$OUTDIR"
 
 # Build the app
-echo "==> Building llama-menubar.app..."
+echo "==> Building LlamaMate.app..."
 (cd llama-menubar && ./build.sh)
 
 # Create the release DMG
-echo "==> Packaging llama-menubar.dmg..."
+echo "==> Packaging LlamaMate.dmg..."
 TMP_DIR=$(mktemp -d)
 cleanup() { rm -rf "$TMP_DIR"; }
 trap cleanup EXIT
 
 ln -s /Applications "$TMP_DIR/Applications"
-cp -R "llama-menubar/llama-menubar.app" "$TMP_DIR/llama-menubar.app"
+cp -R "llama-menubar/LlamaMate.app" "$TMP_DIR/LlamaMate.app"
 
-hdiutil create -volname "llama-menubar v$VERSION" \
+hdiutil create -volname "LlamaMate v$VERSION" \
   -srcfolder "$TMP_DIR" \
   -ov -format UDZO \
-  "$OUTDIR/llama-menubar-$VERSION.dmg"
+  "$OUTDIR/LlamaMate-$VERSION.dmg"
 
 echo ""
 echo "  Release ready: $OUTDIR/"
-echo "    - llama-menubar-$VERSION.dmg"
+echo "    - LlamaMate-$VERSION.dmg"
 echo ""
 echo "  Upload to GitHub Releases."

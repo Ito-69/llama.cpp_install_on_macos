@@ -114,7 +114,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         threadsField = NSTextField(frame: NSRect(x: 130, y: y, width: 80, height: 22))
         threadsField.placeholderString = "0"
         content.addSubview(threadsField)
-        addHint("0 = auto", x: 220, y: y, to: content)
+        let pcores = ServerManager.perfLevelCores()
+        let threadHint = pcores > 0 ? "0 = auto (\(pcores) P-cores detected)" : "0 = auto"
+        addHint(threadHint, x: 220, y: y, to: content)
         y -= 34
 
         // ── Batch size row ──

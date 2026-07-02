@@ -2,8 +2,8 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-VERSION="2.2.0"
-APP_NAME="llama-menubar"
+VERSION="2.3.0"
+APP_NAME="LlamaMate"
 BUILD_ARM64=".build/arm64/release"
 BUILD_X86_64=".build/x86_64/release"
 UNIVERSAL_DIR=".build"
@@ -38,9 +38,9 @@ cat > "${APP_NAME}.app/Contents/Info.plist" <<EOF
     <key>CFBundleExecutable</key>
     <string>llmctl</string>
     <key>CFBundleIdentifier</key>
-    <string>com.llama.menubar</string>
+    <string>com.llamamate.app</string>
     <key>CFBundleName</key>
-    <string>llama-menubar</string>
+    <string>LlamaMate</string>
     <key>CFBundleShortVersionString</key>
     <string>${VERSION}</string>
     <key>CFBundleVersion</key>

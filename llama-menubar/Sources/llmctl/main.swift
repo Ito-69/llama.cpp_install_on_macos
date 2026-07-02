@@ -3,7 +3,7 @@ import Foundation
 
 // MARK: - App Support
 
-let APP_SUPPORT_DIR = NSHomeDirectory() + "/Library/Application Support/llama-menubar"
+let APP_SUPPORT_DIR = NSHomeDirectory() + "/Library/Application Support/LlamaMate"
 let INSTALL_SCRIPT_PATH = APP_SUPPORT_DIR + "/install-llama.sh"
 let CONFIG_PATH = "\(NSHomeDirectory())/.config/llama/server.conf"
 
@@ -67,7 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showWelcomeAndInstall() {
         let alert = NSAlert()
-        alert.messageText = "Welcome to llama-menubar"
+        alert.messageText = "Welcome to LlamaMate"
         alert.informativeText = "This app will install llama.cpp, download a language model, and set up a local AI server in your menu bar.\n\nThis may take a few minutes depending on your internet speed."
         alert.addButton(withTitle: "Install")
         alert.addButton(withTitle: "Quit")
@@ -154,33 +154,37 @@ final class ServerManager {
         default:
             break
         }
+        if isAS {
+            var pcores: Int32 = 0
+            var size = MemoryLayout<Int32>.size
+            sysctlbyname("hw.perflevel0.logicalcpu", &pcores, &size, nil, 0)
+            if pcores > 0 { threads = String(pcores) }
+        }
+    }
+
+    static func perfLevelCores() -> Int {
+        var pcores: Int32 = 0
+        var size = MemoryLayout<Int32>.size
+        sysctlbyname("hw.perflevel0.logicalcpu", &pcores, &size, nil, 0)
+        return Int(pcores)
     }
 
     private func loadConfig() {
-        guard let content = try? String(contentsOfFile: CONFIG_PATH, encoding: .utf8) else { return }
-        for line in content.components(separatedBy: .newlines) {
-            let parts = line.split(separator: "=", maxSplits: 1).map {
-                $0.trimmingCharacters(in: .whitespaces)
-            }
-            guard parts.count == 2 else { continue }
-            switch parts[0] {
-            case "PORT":        port = parts[1]
-            case "CONTEXT":     context = parts[1]
-            case "HOST":        host = parts[1].replacingOccurrences(of: "\"", with: "")
-            case "MODEL_LABEL": modelLabel = parts[1].replacingOccurrences(of: "\"", with: "")
-            case "MODEL_REPO":  modelRepo = parts[1].replacingOccurrences(of: "\"", with: "")
-            case "MODEL_FILE":  modelFile = parts[1].replacingOccurrences(of: "\"", with: "")
-            case "MODEL_PATH":  modelPath = parts[1].replacingOccurrences(of: "\"", with: "")
-            case "NGL":         ngl = parts[1]
-            case "FA":          fa = parts[1]
-            case "CTK":         ctk = parts[1].replacingOccurrences(of: "\"", with: "")
-            case "CTV":         ctv = parts[1].replacingOccurrences(of: "\"", with: "")
-            case "THREADS":     threads = parts[1]
-            case "BATCH_SIZE":  batchSize = parts[1]
-            case "PROFILE":     profile = parts[1].replacingOccurrences(of: "\"", with: "")
-            default:            break
-            }
-        }
+        let config = ConfigManager.shared.read()
+        modelLabel = config.modelLabel
+        modelRepo = config.modelRepo
+        modelFile = config.modelFile
+        modelPath = config.modelPath
+        port = config.port
+        context = config.context
+        host = config.host
+        ngl = config.ngl
+        fa = config.fa
+        ctk = config.ctk
+        ctv = config.ctv
+        threads = config.threads
+        batchSize = config.batchSize
+        profile = config.profile
     }
 
     func checkStatus() {
@@ -515,7 +519,7 @@ final class AppUpdateManager {
             if let v = latestVersion {
                 let alert = NSAlert()
                 alert.messageText = "Update Available"
-                alert.informativeText = "llama-menubar v\(v) is available. Download from GitHub?"
+                alert.informativeText = "LlamaMate v\(v) is available. Download from GitHub?"
                 alert.addButton(withTitle: "Download")
                 alert.addButton(withTitle: "Cancel")
                 if alert.runModal() == .alertFirstButtonReturn {
@@ -525,7 +529,7 @@ final class AppUpdateManager {
             } else {
                 let alert = NSAlert()
                 alert.messageText = "Up to Date"
-                alert.informativeText = "llama-menubar v\(version) is the latest version."
+                alert.informativeText = "LlamaMate v\(version) is the latest version."
                 alert.addButton(withTitle: "OK")
                 alert.runModal()
             }
@@ -775,6 +779,11 @@ final class MenuBarController: NSObject {
         settings.target = self
         menu.addItem(settings)
 
+        // View Server Logs
+        let logs = NSMenuItem(title: "View Server Logs…", action: #selector(openLogs), keyEquivalent: "")
+        logs.target = self
+        menu.addItem(logs)
+
         // App Update
         let appUpdate = NSMenuItem(title: "Check for App Update...", action: #selector(checkAppUpdate), keyEquivalent: "")
         appUpdate.target = self
@@ -811,7 +820,7 @@ final class MenuBarController: NSObject {
         menu.addItem(.separator())
 
         // About
-        let about = NSMenuItem(title: "About llama-menubar", action: #selector(showAbout), keyEquivalent: "")
+        let about = NSMenuItem(title: "About LlamaMate", action: #selector(showAbout), keyEquivalent: "")
         about.target = self
         menu.addItem(about)
 
@@ -836,6 +845,10 @@ final class MenuBarController: NSObject {
 
     @objc private func openSettings() {
         SettingsWindowController.shared.showWindow()
+    }
+
+    @objc private func openLogs() {
+        LogViewerController.shared.showWindow()
     }
 
     func ensureServerRunning() {
@@ -980,7 +993,7 @@ final class MenuBarController: NSObject {
     @objc private func showAbout() {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         let alert = NSAlert()
-        alert.messageText = "llama-menubar"
+        alert.messageText = "LlamaMate"
         alert.informativeText = "Version \(version)\n\nA macOS menu bar app for llama.cpp.\n\nhttps://github.com/Ito-69/llama.cpp_install_on_macos"
         alert.addButton(withTitle: "OK")
         alert.runModal()
