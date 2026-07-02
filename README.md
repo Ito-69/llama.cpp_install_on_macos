@@ -2,6 +2,16 @@
 
 A fully automated installer, updater, and manager for [llama.cpp](https://github.com/ggml-org/llama.cpp) on macOS (Apple Silicon & Intel), packaged as a single self-contained menu bar app.
 
+## Screenshots
+
+| Menu bar | Models window |
+|----------|---------------|
+| ![Menu bar](docs/llamaMate.png) | ![Models](docs/models.png) |
+
+| Server Settings |
+|-----------------|
+| ![Server Settings](docs/settings.png) |
+
 ### Why this exists
 
 llama.cpp releases ship as bare tarballs — no installer, no PATH setup, no
