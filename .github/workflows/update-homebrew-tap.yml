@@ -1,0 +1,113 @@
+name: Update Homebrew Tap
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  update-tap:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Download DMG
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download "$GITHUB_REF_NAME" \
+            --pattern "LlamaMate-*.dmg" \
+            --dir ./artifacts \
+            --repo "$GITHUB_REPOSITORY"
+          ls -la artifacts/
+
+      - name: Compute SHA256
+        id: hash
+        run: |
+          set -euo pipefail
+          DMG=$(ls artifacts/LlamaMate-*.dmg | head -1)
+          if command -v sha256sum >/dev/null 2>&1; then
+            SHA=$(sha256sum "$DMG" | awk '{print $1}')
+          else
+            SHA=$(shasum -a 256 "$DMG" | awk '{print $1}')
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "DMG: $DMG"
+          echo "SHA256: $SHA"
+
+      - name: Extract version
+        id: version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          echo "version=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Clone tap repo
+        env:
+          TAP_REPO_TOKEN: ${{ secrets.TAP_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          git clone https://x-access-token:${TAP_REPO_TOKEN}@github.com/Ito-69/homebrew-llamamate.git tap
+
+      - name: Update cask
+        env:
+          SHA: ${{ steps.hash.outputs.sha }}
+          VER: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd tap
+          cat > Casks/llamamate.rb <<EOF
+          cask "llamamate" do
+            version "${VER}"
+            sha256 "${SHA}"
+
+            url "https://github.com/Ito-69/llama.cpp_install_on_macos/releases/download/v#{version}/LlamaMate-#{version}.dmg"
+            name "LlamaMate"
+            desc "Menu bar app for llama.cpp — browse, download, run local LLMs"
+            homepage "https://github.com/Ito-69/llama.cpp_install_on_macos"
+
+            livecheck do
+              url :url
+              strategy :github_latest_release
+            end
+
+            depends_on macos: :ventura
+
+            app "LlamaMate.app"
+
+            zap trash: [
+              "~/Library/Application Support/LlamaMate",
+              "~/Library/LaunchAgents/com.llama.cpp.server.plist",
+              "~/Library/Logs/llama-server.err.log",
+              "~/Library/Logs/llama-server.log",
+            ]
+
+            caveats <<~EOS
+              LlamaMate is a menu bar app for llama.cpp. After install:
+                • Open LlamaMate from /Applications
+                • First launch may require right-click → Open (ad-hoc signed)
+                • Click "Install" in the welcome dialog to download llama.cpp + a model
+            EOS
+          end
+          EOF
+
+      - name: Open PR
+        env:
+          GH_TOKEN: ${{ secrets.TAP_REPO_TOKEN }}
+          TAP_REPO_TOKEN: ${{ secrets.TAP_REPO_TOKEN }}
+          VER: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "bump-llamamate-${VER}"
+          git add Casks/llamamate.rb
+          git commit -m "llamamate ${VER}"
+          git push -u origin "bump-llamamate-${VER}"
+
+          gh pr create \
+            --repo Ito-69/homebrew-llamamate \
+            --head "bump-llamamate-${VER}" \
+            --base main \
+            --title "llamamate ${VER}" \
+            --body "Automated update from llama.cpp_install_on_macos release v${VER}."

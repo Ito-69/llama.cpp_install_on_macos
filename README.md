@@ -170,6 +170,24 @@ Build outputs:
 - `LlamaMate.app` — universal binary (arm64 + x86_64), ad-hoc codesigned
 - macOS 13+ required
 
+## Release Process
+
+Releases are automated via a single workflow:
+
+```bash
+# 1. Bump VERSION in llamamate/build.sh
+# 2. Build the DMG and publish
+bash release.sh 2.3.3
+gh release create v2.3.3 --target main "release-out/LlamaMate-2.3.3.dmg"
+```
+
+The `.github/workflows/update-homebrew-tap.yml` workflow fires on release publish:
+1. Downloads the DMG and computes its SHA256
+2. Updates `Casks/llamamate.rb` in `Ito-69/homebrew-llamamate`
+3. Opens a PR with the change
+
+**Setup required (one time):** create a [GitHub Personal Access Token](https://github.com/settings/tokens?type=beta) with `contents:write` scope on `homebrew-llamamate` and add it as `TAP_REPO_TOKEN` secret in this repository's settings.
+
 ## Files & Directories
 
 | Path | Purpose |
