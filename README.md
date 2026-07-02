@@ -28,8 +28,8 @@ process into a single `.app` so you never think about it again.
 
 ### Install
 
-1. Download `llama-menubar-2.x.x.zip` from [GitHub Releases](https://github.com/Ito-69/llama.cpp_install_on_macos/releases)
-2. Unzip and move `llama-menubar.app` to `/Applications`
+1. Download `llama-menubar-2.x.x.dmg` from [GitHub Releases](https://github.com/Ito-69/llama.cpp_install_on_macos/releases)
+2. Open the `.dmg` and drag `llama-menubar.app` to `/Applications`
 3. **Right-click → Open** the first time (because the app is not notarized)
 4. Click **Install** in the welcome dialog
 
@@ -65,6 +65,7 @@ The app lives in your menu bar with a green llama icon (faded = stopped, full = 
 | `Open WebUI` | Open `http://127.0.0.1:8080` in your browser (⌘O) |
 | `Start Server` / `Stop Server` / `Restart Server` | Control the llama-server LaunchAgent |
 | `Models…` | Open the Models window (browse, download, activate, delete) |
+| `Server Settings…` | Open the Server Settings window (profiles, GPU layers, context, flash attention, KV cache, threads, batch size, port) |
 | `Check for App Update...` | Check for a newer llama-menubar release on GitHub |
 | `Check for llama.cpp Update...` | Check for a newer llama.cpp build |
 | `Apply llama.cpp Update...` | Download and install the latest llama.cpp build |
@@ -112,6 +113,36 @@ Paste any of these and click **Fetch**:
 - Without a Hugging Face token, downloads are rate-limited. The app prompts for one on first install. You can add a token later from the welcome dialog.
 - The download uses `huggingface_hub` (Python) which supports resumable downloads.
 - All downloaded models land in `~/models/`. Delete them anytime from the Installed tab.
+
+## Server Settings
+
+Click **Server Settings…** in the menu bar to tune `llama-server` parameters without touching the terminal. The window auto-detects Apple Silicon vs Intel and adjusts presets accordingly.
+
+### Profiles
+
+Three presets that set GPU layers, flash attention, and KV cache quantization together:
+
+| Profile | Apple Silicon (M1–M4) | Intel Mac |
+|---------|-----------------------|-----------|
+| **Fast** | `-ngl 99` `-fa 1` `-ctk q8_0` | `-ngl 1` |
+| **Balanced** *(default)* | `-ngl 40` `-fa 1` `-ctk q8_0` | CPU only |
+| **Accurate** | `-ngl 99` no KV cache opts | CPU only |
+
+### Individual controls
+
+| Control | What it does |
+|---------|-------------|
+| **GPU layers** | Number of layers offloaded to GPU (0–99). On Apple Silicon, Metal acceleration makes this the single biggest speedup — always set to 99. |
+| **Context** | Context size in tokens (2048–32768). Larger = more memory, better for long conversations. |
+| **Flash attention** | Faster inference with most models. Always enabled on Apple Silicon Fast/Balanced profiles. |
+| **KV cache type** | Quantization for key/value cache: `f16` (full precision), `q8_0` (8-bit, saves RAM), `q4_0` (4-bit, maximum RAM saving). |
+| **Threads** | CPU threads for prompt processing. `0` = auto. On Apple Silicon, optimal is the number of P-cores (not logical cores). |
+| **Batch size** | Tokens processed per batch. `512` is a good default. |
+| **Port** | HTTP server port (default `8080`). |
+
+### RAM safety
+
+When you apply settings, the window shows an estimate of model + context RAM vs your system's available memory. If the estimate exceeds available RAM, a warning is shown. The start script also checks before launching `llama-server` and logs a warning if the model is likely too large.
 
 ## Build from Source
 
