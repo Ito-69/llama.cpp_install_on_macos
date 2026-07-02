@@ -6,6 +6,9 @@ llama-b*.tar.xz
 *.tar.gz
 *.zip
 
+# Extracted llama.cpp bundles (untracked after first install)
+llama-b*/
+
 # Extraction temp dirs
 .llama-extract-*
 
