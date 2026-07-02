@@ -583,11 +583,11 @@ final class OutputWindowController: NSObject, NSWindowDelegate {
         spinner.controlSize = .small
         spinner.startAnimation(nil)
 
-        let apply = NSButton(title: "Apply Update", target: nil, action: nil)
+        let apply = NSButton(title: "Install Update", target: nil, action: nil)
         apply.bezelStyle = .rounded
         apply.isEnabled = false
         apply.setButtonType(.momentaryPushIn)
-        apply.frame = NSRect(x: 640 - 16 - 80 - 8 - 80, y: 14, width: 80, height: 24)
+        apply.frame = NSRect(x: 640 - 16 - 110 - 8 - 80, y: 14, width: 110, height: 24)
         apply.autoresizingMask = [.minXMargin]
 
         let close = NSButton(title: "Close", target: nil, action: nil)
