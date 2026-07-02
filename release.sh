@@ -13,14 +13,22 @@ mkdir -p "$OUTDIR"
 echo "==> Building llama-menubar.app..."
 (cd llama-menubar && ./build.sh)
 
-# Create the release zip
-echo "==> Packaging llama-menubar.zip..."
-ditto -c -k --sequesterRsrc --keepParent \
-  "llama-menubar/llama-menubar.app" \
-  "$OUTDIR/llama-menubar-$VERSION.zip"
+# Create the release DMG
+echo "==> Packaging llama-menubar.dmg..."
+TMP_DIR=$(mktemp -d)
+cleanup() { rm -rf "$TMP_DIR"; }
+trap cleanup EXIT
+
+ln -s /Applications "$TMP_DIR/Applications"
+cp -R "llama-menubar/llama-menubar.app" "$TMP_DIR/llama-menubar.app"
+
+hdiutil create -volname "llama-menubar v$VERSION" \
+  -srcfolder "$TMP_DIR" \
+  -ov -format UDZO \
+  "$OUTDIR/llama-menubar-$VERSION.dmg"
 
 echo ""
 echo "  Release ready: $OUTDIR/"
-echo "    - llama-menubar-$VERSION.zip"
+echo "    - llama-menubar-$VERSION.dmg"
 echo ""
 echo "  Upload to GitHub Releases."
