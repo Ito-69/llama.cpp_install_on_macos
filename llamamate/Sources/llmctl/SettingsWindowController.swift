@@ -149,14 +149,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         // ── Buttons ──
         let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancelClicked))
         cancelButton.bezelStyle = .rounded
-        cancelButton.frame = NSRect(x: 520 - 16 - 80 - 8 - 110, y: 16, width: 110, height: 24)
+        cancelButton.frame = NSRect(x: 520 - 16 - 130 - 8 - 80, y: 16, width: 80, height: 24)
         cancelButton.autoresizingMask = [.minXMargin, .minYMargin]
         content.addSubview(cancelButton)
 
         applyButton = NSButton(title: "Apply & Restart", target: self, action: #selector(applyClicked))
         applyButton.bezelStyle = .rounded
         applyButton.keyEquivalent = "\r"
-        applyButton.frame = NSRect(x: 520 - 16 - 110, y: 16, width: 110, height: 24)
+        applyButton.frame = NSRect(x: 520 - 16 - 130, y: 16, width: 130, height: 24)
         applyButton.autoresizingMask = [.minXMargin, .minYMargin]
         content.addSubview(applyButton)
 
