@@ -28,6 +28,13 @@ process into a single `.app` so you never think about it again.
 
 ### Install
 
+**Via Homebrew (recommended if you have Homebrew):**
+```bash
+brew tap Ito-69/llamamate
+brew install --cask llamamate
+```
+
+**Via DMG (no Homebrew required):**
 1. Download `LlamaMate-2.x.x.dmg` from [GitHub Releases](https://github.com/Ito-69/llama.cpp_install_on_macos/releases)
 2. Open the `.dmg` and drag `LlamaMate.app` to `/Applications`
 3. **Right-click → Open** the first time (because the app is not notarized)
