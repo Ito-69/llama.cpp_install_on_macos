@@ -750,20 +750,24 @@ final class MenuBarController: NSObject {
         // Open WebUI
         let web = NSMenuItem(title: "Open WebUI", action: #selector(openWebUI), keyEquivalent: "o")
         web.target = self
+        web.image = NSImage(systemSymbolName: "globe", accessibilityDescription: nil)
         menu.addItem(web)
 
         // Start / Stop / Restart
         if server.isRunning {
             let restart = NSMenuItem(title: "Restart Server", action: #selector(restartServer), keyEquivalent: "r")
             restart.target = self
+            restart.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: nil)
             menu.addItem(restart)
 
             let stop = NSMenuItem(title: "Stop Server", action: #selector(stopServer), keyEquivalent: "")
             stop.target = self
+            stop.image = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: nil)
             menu.addItem(stop)
         } else {
             let start = NSMenuItem(title: "Start Server", action: #selector(startServer), keyEquivalent: "s")
             start.target = self
+            start.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: nil)
             menu.addItem(start)
         }
 
@@ -772,31 +776,37 @@ final class MenuBarController: NSObject {
         // Models window
         let models = NSMenuItem(title: "Models…", action: #selector(openModels), keyEquivalent: "m")
         models.target = self
+        models.image = NSImage(systemSymbolName: "tray.full", accessibilityDescription: nil)
         menu.addItem(models)
 
         // Server Settings
         let settings = NSMenuItem(title: "Server Settings…", action: #selector(openSettings), keyEquivalent: "")
         settings.target = self
+        settings.image = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: nil)
         menu.addItem(settings)
 
         // View Server Logs
         let logs = NSMenuItem(title: "View Server Logs…", action: #selector(openLogs), keyEquivalent: "")
         logs.target = self
+        logs.image = NSImage(systemSymbolName: "doc.text", accessibilityDescription: nil)
         menu.addItem(logs)
 
         // App Update
         let appUpdate = NSMenuItem(title: "Check for App Update...", action: #selector(checkAppUpdate), keyEquivalent: "")
         appUpdate.target = self
+        appUpdate.image = NSImage(systemSymbolName: "arrow.up.circle", accessibilityDescription: nil)
         menu.addItem(appUpdate)
 
         // llama.cpp Update
         if UpdateManager.shared.isAvailable() {
             let checkLlama = NSMenuItem(title: "Check for llama.cpp Update...", action: #selector(checkLlamaUpdate), keyEquivalent: "")
             checkLlama.target = self
+            checkLlama.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: nil)
             menu.addItem(checkLlama)
 
             let applyLlama = NSMenuItem(title: "Apply llama.cpp Update...", action: #selector(applyLlamaUpdate), keyEquivalent: "")
             applyLlama.target = self
+            applyLlama.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil)
             menu.addItem(applyLlama)
         }
 
