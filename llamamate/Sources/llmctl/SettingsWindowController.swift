@@ -58,6 +58,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         addLabel("Profile:", x: 16, y: y - 2, width: 110, to: content)
         profilePopup = NSPopUpButton(frame: NSRect(x: 130, y: y, width: 200, height: 24))
         profilePopup.addItems(withTitles: ["Fast", "Balanced", "Accurate"])
+        profilePopup.toolTip = "Preset combinations of GPU layers, flash attention and KV cache quantization."
         profilePopup.target = self
         profilePopup.action = #selector(profileChanged(_:))
         content.addSubview(profilePopup)
@@ -75,6 +76,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         nglSlider.maxValue = 99
         nglSlider.numberOfTickMarks = 100
         nglSlider.allowsTickMarkValuesOnly = false
+        nglSlider.toolTip = "Number of transformer layers offloaded to the GPU. 99 = maximum GPU acceleration. 0 = CPU only."
         nglSlider.target = self
         nglSlider.action = #selector(nglChanged(_:))
         content.addSubview(nglSlider)
@@ -82,6 +84,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         nglLabel.frame = NSRect(x: 400, y: y - 2, width: 40, height: 18)
         nglLabel.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         nglLabel.alignment = .right
+        nglLabel.toolTip = "Current GPU layers value."
         content.addSubview(nglLabel)
         y -= 34
 
@@ -90,6 +93,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         contextPopup = NSPopUpButton(frame: NSRect(x: 130, y: y, width: 150, height: 24))
         let ctxValues = ["2048", "4096", "8192", "16384", "32768"]
         contextPopup.addItems(withTitles: ctxValues)
+        contextPopup.toolTip = "Maximum number of tokens the model can keep in memory. Larger context uses more RAM."
         content.addSubview(contextPopup)
         addHint("tokens", x: 290, y: y, to: content)
         y -= 34
@@ -98,6 +102,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         addLabel("Flash attn:", x: 16, y: y - 2, width: 110, to: content)
         faCheckbox = NSButton(checkboxWithTitle: "Enabled (faster inference)", target: self, action: #selector(checkboxChanged(_:)))
         faCheckbox.frame = NSRect(x: 130, y: y, width: 200, height: 22)
+        faCheckbox.toolTip = "Flash Attention speeds up inference on most models. Leave enabled unless the model crashes."
         content.addSubview(faCheckbox)
         y -= 34
 
@@ -105,6 +110,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         addLabel("KV cache:", x: 16, y: y - 2, width: 110, to: content)
         cachePopup = NSPopUpButton(frame: NSRect(x: 130, y: y, width: 150, height: 24))
         cachePopup.addItems(withTitles: ["f16", "q8_0", "q4_0"])
+        cachePopup.toolTip = "Quantization of the key/value cache. Lower precision = less RAM, but may reduce quality."
         content.addSubview(cachePopup)
         addHint("quant type (saves RAM)", x: 290, y: y, to: content)
         y -= 34
@@ -113,6 +119,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         addLabel("Threads:", x: 16, y: y - 2, width: 110, to: content)
         threadsField = NSTextField(frame: NSRect(x: 130, y: y, width: 80, height: 22))
         threadsField.placeholderString = "0"
+        threadsField.toolTip = "CPU threads used for prompt processing. 0 = auto. On Apple Silicon, setting this to the number of P-cores is usually fastest."
         content.addSubview(threadsField)
         let pcores = ServerManager.perfLevelCores()
         let threadHint = pcores > 0 ? "0 = auto (\(pcores) P-cores detected)" : "0 = auto"
@@ -123,6 +130,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         addLabel("Batch:", x: 16, y: y - 2, width: 110, to: content)
         batchField = NSTextField(frame: NSRect(x: 130, y: y, width: 80, height: 22))
         batchField.placeholderString = "512"
+        batchField.toolTip = "Number of tokens processed in one batch. 512 is a good default. Larger batches use more memory."
         content.addSubview(batchField)
         addHint("tokens per batch", x: 220, y: y, to: content)
         y -= 34
@@ -131,6 +139,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         addLabel("Port:", x: 16, y: y - 2, width: 110, to: content)
         portField = NSTextField(frame: NSRect(x: 130, y: y, width: 100, height: 22))
         portField.placeholderString = "8080"
+        portField.toolTip = "TCP port for the llama-server HTTP API and WebUI."
         content.addSubview(portField)
         y -= 34
 
@@ -151,6 +160,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         cancelButton.bezelStyle = .rounded
         cancelButton.frame = NSRect(x: 520 - 16 - 130 - 8 - 80, y: 16, width: 80, height: 24)
         cancelButton.autoresizingMask = [.minXMargin, .minYMargin]
+        cancelButton.toolTip = "Close without saving changes."
         content.addSubview(cancelButton)
 
         applyButton = NSButton(title: "Apply & Restart", target: self, action: #selector(applyClicked))
@@ -158,6 +168,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         applyButton.keyEquivalent = "\r"
         applyButton.frame = NSRect(x: 520 - 16 - 130, y: 16, width: 130, height: 24)
         applyButton.autoresizingMask = [.minXMargin, .minYMargin]
+        applyButton.toolTip = "Save settings, regenerate the start script and restart the server."
         content.addSubview(applyButton)
 
         w.contentView = content
