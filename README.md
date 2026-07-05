@@ -196,7 +196,11 @@ The `.github/workflows/update-homebrew-tap.yml` workflow fires on release publis
 2. Updates `Casks/llamamate.rb` in `Ito-69/homebrew-llamamate`
 3. Opens a PR with the change
 
-**Setup required (one time):** create a [GitHub Personal Access Token](https://github.com/settings/tokens?type=beta) with `contents:write` scope on `homebrew-llamamate` and add it as `TAP_REPO_TOKEN` secret in this repository's settings.
+**Setup required (one time):** create a [GitHub Personal Access Token](https://github.com/settings/tokens?type=beta) with **Repository: Read & Write** access to `homebrew-llamamate` for:
+- `Contents` (to push the updated cask file)
+- `Pull requests` (to open the version-bump PR)
+
+Add it as the `TAP_REPO_TOKEN` secret in this repository's **Settings → Secrets and variables → Actions**.
 
 ## Files & Directories
 
