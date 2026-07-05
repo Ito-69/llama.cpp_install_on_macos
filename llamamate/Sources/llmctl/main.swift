@@ -43,53 +43,10 @@ func isInstalled() -> Bool {
 // MARK: - App Delegate
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var menuBar: MenuBarController!
-
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.accessory)
-
-        guard ensureSupportDir(), copyBundledScript() else {
-            let alert = NSAlert()
-            alert.messageText = "Setup Failed"
-            alert.informativeText = "Could not prepare the support directory."
-            alert.addButton(withTitle: "Quit")
-            alert.runModal()
-            NSApp.terminate(nil)
-            return
-        }
-
-        if isInstalled() {
-            showMenuBar()
-        } else {
-            showWelcomeAndInstall()
-        }
-    }
-
-    private func showWelcomeAndInstall() {
-        let alert = NSAlert()
-        alert.messageText = "Welcome to LlamaMate"
-        alert.informativeText = "This app will install llama.cpp, download a language model, and set up a local AI server in your menu bar.\n\nThis may take a few minutes depending on your internet speed."
-        alert.addButton(withTitle: "Install")
-        alert.addButton(withTitle: "Quit")
-        guard alert.runModal() == .alertFirstButtonReturn else { NSApp.terminate(nil); return }
-
-        InstallManager.shared.install { [weak self] success in
-            DispatchQueue.main.async {
-                self?.showMenuBar()
-                if success {
-                    self?.menuBar?.ensureServerRunning()
-                } else {
-                    let err = NSAlert()
-                    err.messageText = "Installation incomplete"
-                    err.informativeText = "Check the output for details. You can re-install later from the menu."
-                    err.runModal()
-                }
-            }
-        }
-    }
-
-    private func showMenuBar() {
-        menuBar = MenuBarController()
+        ensureSupportDir()
+        copyBundledScript()
+        _ = MenuBarController.shared
     }
 }
 
@@ -425,6 +382,7 @@ final class UpdateManager: NSObject {
     func applyUpdate() {
         runScript(args: ["--upgrade"], title: "Update Result") { [weak self] _ in
             self?.cleanupArchive(APP_SUPPORT_DIR)
+            MenuBarController.shared.setUpdateAvailable(false)
         }
     }
 
@@ -459,6 +417,9 @@ final class UpdateManager: NSObject {
             let updateAvailable = isCheck && fullOut.contains("newer version available")
 
             DispatchQueue.main.async {
+                if isCheck {
+                    MenuBarController.shared.setUpdateAvailable(updateAvailable)
+                }
                 controller.finish(exitCode: exitCode, applyEnabled: updateAvailable) { applyClicked in
                     self.activeControllers.removeAll { $0 === controller }
                     onComplete?(isCheck && applyClicked && updateAvailable)
@@ -517,16 +478,19 @@ final class AppUpdateManager {
         let version = currentVersion
         check { latestVersion in
             if let v = latestVersion {
+                MenuBarController.shared.setUpdateAvailable(true)
                 let alert = NSAlert()
                 alert.messageText = "Update Available"
                 alert.informativeText = "LlamaMate v\(v) is available. Download from GitHub?"
                 alert.addButton(withTitle: "Download")
                 alert.addButton(withTitle: "Cancel")
                 if alert.runModal() == .alertFirstButtonReturn {
+                    MenuBarController.shared.setUpdateAvailable(false)
                     guard let url = URL(string: "https://github.com/Ito-69/llama.cpp_install_on_macos/releases/latest") else { return }
                     NSWorkspace.shared.open(url)
                 }
             } else {
+                MenuBarController.shared.setUpdateAvailable(false)
                 let alert = NSAlert()
                 alert.messageText = "Up to Date"
                 alert.informativeText = "LlamaMate v\(version) is the latest version."
@@ -678,6 +642,8 @@ final class OutputWindowController: NSObject, NSWindowDelegate {
 // MARK: - Menu Bar Controller
 
 final class MenuBarController: NSObject {
+    static let shared = MenuBarController()
+
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let server = ServerManager.shared
     private var pollTimer: Timer?
@@ -685,7 +651,7 @@ final class MenuBarController: NSObject {
     override init() {
         super.init()
 
-        statusItem.button?.image = icon(running: false)
+        statusItem.button?.image = icon(running: false, updateAvailable: false)
 
         server.onStatusChange = { [weak self] in
             DispatchQueue.main.async { self?.refresh() }
@@ -711,7 +677,14 @@ final class MenuBarController: NSObject {
         return img
     }()
 
-    private func icon(running: Bool) -> NSImage {
+    private var updateAvailable = false
+
+    func setUpdateAvailable(_ available: Bool) {
+        updateAvailable = available
+        refresh()
+    }
+
+    private func icon(running: Bool, updateAvailable: Bool) -> NSImage {
         let fraction: CGFloat = running ? 1.0 : 0.35
         let img = NSImage(size: NSSize(width: 20, height: 20))
         img.lockFocusFlipped(false)
@@ -719,6 +692,12 @@ final class MenuBarController: NSObject {
                         from: .zero,
                         operation: .sourceOver,
                         fraction: fraction)
+        if updateAvailable {
+            let badgeRect = NSRect(x: 14, y: 14, width: 6, height: 6)
+            let path = NSBezierPath(ovalIn: badgeRect)
+            NSColor.systemRed.setFill()
+            path.fill()
+        }
         img.unlockFocus()
         return img
     }
@@ -726,7 +705,7 @@ final class MenuBarController: NSObject {
     // MARK: Menu
 
     private func refresh() {
-        statusItem.button?.image = icon(running: server.isRunning)
+        statusItem.button?.image = icon(running: server.isRunning, updateAvailable: updateAvailable)
 
         let menu = NSMenu()
 
