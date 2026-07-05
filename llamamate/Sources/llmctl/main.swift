@@ -656,15 +656,15 @@ final class OutputWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc private func applyClicked() {
-        window.close()
         onFinish?(true)
         onFinish = nil
+        window.close()
     }
 
     @objc private func closeClicked() {
-        window.close()
         onFinish?(false)
         onFinish = nil
+        window.close()
     }
 
     func windowWillClose(_ notification: Notification) {
