@@ -72,6 +72,8 @@ jobs:
           cd tap
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git branch -D "bump-llamamate-${VER}" 2>/dev/null || true
+          git push origin --delete "bump-llamamate-${VER}" 2>/dev/null || true
           git checkout -b "bump-llamamate-${VER}"
           git add Casks/llamamate.rb
           git commit -m "llamamate ${VER}"
