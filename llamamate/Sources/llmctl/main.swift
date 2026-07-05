@@ -474,6 +474,19 @@ final class AppUpdateManager {
         return 0
     }
 
+    private func isInstalledViaHomebrew() -> Bool {
+        let fm = FileManager.default
+        let paths = [
+            NSHomeDirectory() + "/.homebrew",
+            "/opt/homebrew/Caskroom/llamamate",
+            "/usr/local/Caskroom/llamamate"
+        ]
+        for path in paths {
+            if fm.fileExists(atPath: path) { return true }
+        }
+        return Bundle.main.bundlePath.contains("Caskroom/llamamate")
+    }
+
     func showResult() {
         let version = currentVersion
         check { latestVersion in
@@ -481,13 +494,24 @@ final class AppUpdateManager {
                 MenuBarController.shared.setUpdateAvailable(true)
                 let alert = NSAlert()
                 alert.messageText = "Update Available"
-                alert.informativeText = "LlamaMate v\(v) is available. Download from GitHub?"
-                alert.addButton(withTitle: "Download")
-                alert.addButton(withTitle: "Cancel")
-                if alert.runModal() == .alertFirstButtonReturn {
-                    MenuBarController.shared.setUpdateAvailable(false)
-                    guard let url = URL(string: "https://github.com/Ito-69/llama.cpp_install_on_macos/releases/latest") else { return }
-                    NSWorkspace.shared.open(url)
+                if self.isInstalledViaHomebrew() {
+                    alert.informativeText = "LlamaMate v\(v) is available.\n\nYou installed via Homebrew. Run this in Terminal to upgrade:\n\nbrew upgrade --cask llamamate"
+                    alert.addButton(withTitle: "Copy Command")
+                    alert.addButton(withTitle: "Cancel")
+                    if alert.runModal() == .alertFirstButtonReturn {
+                        let pasteboard = NSPasteboard.general
+                        pasteboard.clearContents()
+                        pasteboard.setString("brew upgrade --cask llamamate", forType: .string)
+                    }
+                } else {
+                    alert.informativeText = "LlamaMate v\(v) is available. Download from GitHub?"
+                    alert.addButton(withTitle: "Download")
+                    alert.addButton(withTitle: "Cancel")
+                    if alert.runModal() == .alertFirstButtonReturn {
+                        MenuBarController.shared.setUpdateAvailable(false)
+                        guard let url = URL(string: "https://github.com/Ito-69/llama.cpp_install_on_macos/releases/latest") else { return }
+                        NSWorkspace.shared.open(url)
+                    }
                 }
             } else {
                 MenuBarController.shared.setUpdateAvailable(false)
