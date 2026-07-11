@@ -147,7 +147,7 @@ final class ServerManager {
     func checkStatus() {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
-        task.arguments = ["-x", "llama-server"]
+        task.arguments = ["-f", "llama-server"]
         let pipe = Pipe()
         task.standardOutput = pipe
         task.standardError = pipe

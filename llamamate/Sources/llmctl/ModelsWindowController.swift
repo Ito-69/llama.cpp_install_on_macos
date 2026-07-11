@@ -100,6 +100,7 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         if window == nil { buildWindow() }
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+        descriptionLabel.isHidden = true
         refreshActive()
         refreshInstalled()
     }
@@ -130,8 +131,9 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
 
         // Tab view
         let tabHeight: CGFloat = 330
-        tabView = NSTabView(frame: NSRect(x: 16, y: 20, width: 688, height: tabHeight))
+        tabView = NSTabView(frame: NSRect(x: 16, y: 44, width: 688, height: tabHeight - 24))
         tabView.autoresizingMask = [.width, .height]
+        tabView.delegate = self
 
         addTab("Active", view: buildActiveTab())
         addTab("Browse", view: buildBrowseTab())
@@ -141,7 +143,7 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
 
         // Description / status panel (below tabs)
         descriptionLabel = NSTextField(wrappingLabelWithString: "")
-        descriptionLabel.frame = NSRect(x: 16, y: 110, width: 688, height: 50)
+        descriptionLabel.frame = NSRect(x: 16, y: 8, width: 688, height: 36)
         descriptionLabel.font = NSFont.systemFont(ofSize: 11)
         descriptionLabel.textColor = .secondaryLabelColor
         descriptionLabel.isHidden = true
@@ -528,6 +530,7 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
             headerLabel.stringValue = "Active: (llama.cpp not installed yet)"
             return
         }
+        ServerManager.shared.checkStatus()
         let s = ServerManager.shared
         // Strip trailing "(~X.X GB)" from label so we don't double-print size
         var label = s.modelLabel
@@ -715,6 +718,13 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
 }
 
 // MARK: - NSTableView DataSource / Delegate
+
+extension ModelsWindowController: NSTabViewDelegate {
+    func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
+        descriptionLabel.stringValue = ""
+        descriptionLabel.isHidden = true
+    }
+}
 
 extension ModelsWindowController: NSTableViewDataSource, NSTableViewDelegate {
     func tableViewSelectionDidChange(_ notification: Notification) {

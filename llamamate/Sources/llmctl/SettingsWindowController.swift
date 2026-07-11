@@ -374,56 +374,78 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     }
 
     private func updateUsage() {
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            guard let self = self else { return }
-            let selfUsage = self.selfUsageFromRusage()
-            let serverUsage = self.serverUsageFromPS()
-            let gpu = self.gpuUtilization()
+        let selfCpu = cpuPercent()
+        let selfMem = memoryBytes()
+        let serverUsage = serverUsageFromPS()
+        let gpu = gpuUtilization()
 
-            DispatchQueue.main.async {
-                var parts: [String] = []
-                parts.append(String(format: "LlamaMate: %.1f%% CPU · %.1f MB RAM", selfUsage.cpu, selfUsage.ramMB))
+        var parts: [String] = []
+        parts.append(String(format: "LlamaMate: %.1f%% CPU · %.1f MB RAM", selfCpu, Double(selfMem) / 1_000_000.0))
 
-                if let server = serverUsage {
-                    let gpuText = gpu != nil ? String(format: " · GPU %.0f%%", gpu!) : ""
-                    parts.append(String(format: "llama-server: %.1f%% CPU · %.1f MB RAM%@", server.cpu, server.ramMB, gpuText))
-                } else {
-                    parts.append("llama-server: not running")
-                }
-
-                self.usageLabel.stringValue = parts.joined(separator: "  |  ")
-            }
+        if let server = serverUsage {
+            let gpuText = gpu != nil ? String(format: " · GPU %.0f%%", gpu!) : ""
+            parts.append(String(format: "llama-server: %.1f%% CPU · %.1f MB RAM%@", server.cpu, server.ramMB, gpuText))
+        } else {
+            parts.append("llama-server: not running")
         }
+
+        usageLabel.stringValue = parts.joined(separator: "  |  ")
     }
 
     private func appUsageString() -> String {
         return "Gathering usage…"
     }
 
-    // MARK: - Process monitoring
+    // MARK: - Self monitoring (Mach)
 
-    private func selfUsageFromRusage() -> (cpu: Double, ramMB: Double) {
-        var usage = rusage()
-        getrusage(RUSAGE_SELF, &usage)
-        let userSec = Double(usage.ru_utime.tv_sec) + Double(usage.ru_utime.tv_usec) / 1_000_000.0
-        let sysSec = Double(usage.ru_stime.tv_sec) + Double(usage.ru_stime.tv_usec) / 1_000_000.0
-        let totalSec = userSec + sysSec
+    private func memoryBytes() -> UInt64 {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+        let kr = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        if kr == KERN_SUCCESS {
+            return info.phys_footprint
+        }
+        return 0
+    }
+
+    private func cpuPercent() -> Double {
+        var threadList: thread_act_array_t?
+        var threadCount: mach_msg_type_number_t = 0
+        let kr = task_threads(mach_task_self_, &threadList, &threadCount)
+        guard kr == KERN_SUCCESS, let threads = threadList else { return 0 }
+        var totalSeconds: Double = 0
+        for i in 0..<Int(threadCount) {
+            var info = thread_basic_info()
+            var count = mach_msg_type_number_t(THREAD_INFO_MAX)
+            let kr2 = withUnsafeMutablePointer(to: &info) {
+                $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                    thread_info(threads[i], thread_flavor_t(THREAD_BASIC_INFO), $0, &count)
+                }
+            }
+            if kr2 == KERN_SUCCESS {
+                totalSeconds += Double(info.user_time.seconds) + Double(info.user_time.microseconds) / 1_000_000.0
+                totalSeconds += Double(info.system_time.seconds) + Double(info.system_time.microseconds) / 1_000_000.0
+            }
+        }
+        vm_deallocate(mach_task_self_, vm_address_t(UInt(bitPattern: threads)), vm_size_t(Int(threadCount) * MemoryLayout<thread_t>.stride))
 
         let now = Date.timeIntervalSinceReferenceDate
         let delta = now - lastSelfSampleTime
-        let cpuDelta = totalSec - lastSelfCpuTime
-        lastSelfCpuTime = totalSec
+        let cpuDelta = totalSeconds - lastSelfCpuTime
+        lastSelfCpuTime = totalSeconds
         lastSelfSampleTime = now
 
-        let cpu: Double
         if delta > 0 {
-            cpu = (cpuDelta / delta) * 100.0
-        } else {
-            cpu = 0
+            return (cpuDelta / delta) * 100.0
         }
-        let ramMB = Double(usage.ru_maxrss) / 1024.0
-        return (cpu, ramMB)
+        return 0
     }
+
+    // MARK: - Server monitoring
 
     private func serverUsageFromPS() -> (cpu: Double, ramMB: Double)? {
         guard let output = runShell("/bin/ps", args: ["-A", "-o", "pid=,pcpu=,rss=,comm="]) else { return nil }
@@ -461,7 +483,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         } catch {
             return nil
         }
-        // Drain stderr to avoid pipe deadlock
         _ = errPipe.fileHandleForReading.readDataToEndOfFile()
         let data = outPipe.fileHandleForReading.readDataToEndOfFile()
         return String(data: data, encoding: .utf8)
