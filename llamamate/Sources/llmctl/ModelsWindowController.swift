@@ -611,7 +611,7 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         let picker = FilePickerController(repo: repo, files: files, parentWindow: parent) { [weak self] file, label in
             self?.startDownload(repo: repo, file: file, label: label)
         }
-        picker.runSheet()
+        picker.runFloating()
     }
 
     // MARK: Download
@@ -816,13 +816,17 @@ final class FilePickerController: NSObject {
         self.onPick = onPick
     }
 
-    func runSheet() {
+    func runFloating() {
         let w = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 380),
             styleMask: [.titled, .closable],
             backing: .buffered, defer: false
         )
         w.title = "Pick a file — \(repo)"
+        w.level = .floating
+        w.isFloatingPanel = true
+        w.hidesOnDeactivate = false
+        w.center()
         let content = NSView(frame: w.contentView!.bounds)
         content.autoresizingMask = [.width, .height]
 
@@ -865,16 +869,11 @@ final class FilePickerController: NSObject {
         content.addSubview(download)
         w.contentView = content
         panel = w
-        parentWindow.beginSheet(w, completionHandler: nil)
-    }
-
-    private func dismissSheet() {
-        guard let sheetParent = panel.sheetParent else { return }
-        sheetParent.endSheet(panel)
+        w.makeKeyAndOrderFront(nil)
     }
 
     @objc private func cancelClicked() {
-        dismissSheet()
+        panel?.close()
     }
 
     @objc private func downloadClicked() {
@@ -884,7 +883,7 @@ final class FilePickerController: NSObject {
             return
         }
         let f = files[row]
-        dismissSheet()
+        panel?.close()
         onPick(f.path, f.path)
     }
 
