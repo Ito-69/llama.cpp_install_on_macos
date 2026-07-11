@@ -374,22 +374,28 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     }
 
     private func updateUsage() {
-        let selfCpu = cpuPercent()
-        let selfMem = memoryBytes()
-        let serverUsage = serverUsageFromPS()
-        let gpu = gpuUtilization()
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self = self else { return }
+            let selfCpu = self.cpuPercent()
+            let selfMem = self.memoryBytes()
+            let serverUsage = self.serverUsageFromPS()
+            let gpu = self.gpuUtilization()
 
-        var parts: [String] = []
-        parts.append(String(format: "LlamaMate: %.1f%% CPU · %.1f MB RAM", selfCpu, Double(selfMem) / 1_000_000.0))
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                var parts: [String] = []
+                parts.append(String(format: "LlamaMate: %.1f%% CPU · %.1f MB RAM", selfCpu, Double(selfMem) / 1_000_000.0))
 
-        if let server = serverUsage {
-            let gpuText = gpu != nil ? String(format: " · GPU %.0f%%", gpu!) : ""
-            parts.append(String(format: "llama-server: %.1f%% CPU · %.1f MB RAM%@", server.cpu, server.ramMB, gpuText))
-        } else {
-            parts.append("llama-server: not running")
+                if let server = serverUsage {
+                    let gpuText = gpu != nil ? String(format: " · GPU %.0f%%", gpu!) : ""
+                    parts.append(String(format: "llama-server: %.1f%% CPU · %.1f MB RAM%@", server.cpu, server.ramMB, gpuText))
+                } else {
+                    parts.append("llama-server: not running")
+                }
+
+                self.usageLabel.stringValue = parts.joined(separator: "  |  ")
+            }
         }
-
-        usageLabel.stringValue = parts.joined(separator: "  |  ")
     }
 
     private func appUsageString() -> String {
@@ -474,17 +480,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         task.executableURL = URL(fileURLWithPath: path)
         task.arguments = args
         let outPipe = Pipe()
-        let errPipe = Pipe()
         task.standardOutput = outPipe
-        task.standardError = errPipe
+        task.standardError = outPipe
         do {
             try task.run()
-            task.waitUntilExit()
         } catch {
             return nil
         }
-        _ = errPipe.fileHandleForReading.readDataToEndOfFile()
         let data = outPipe.fileHandleForReading.readDataToEndOfFile()
+        task.waitUntilExit()
         return String(data: data, encoding: .utf8)
     }
 }

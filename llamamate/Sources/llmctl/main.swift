@@ -148,9 +148,8 @@ final class ServerManager {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
         task.arguments = ["-f", "llama-server"]
-        let pipe = Pipe()
-        task.standardOutput = pipe
-        task.standardError = pipe
+        task.standardOutput = FileHandle.nullDevice
+        task.standardError = FileHandle.nullDevice
         try? task.run()
         task.waitUntilExit()
         isRunning = task.terminationStatus == 0

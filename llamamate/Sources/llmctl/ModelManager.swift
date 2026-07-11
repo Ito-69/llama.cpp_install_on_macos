@@ -120,7 +120,10 @@ final class ModelManager {
             progressCallback: progressCallback,
             completion: completion
         )
-        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: .main)
+        let queue = OperationQueue()
+        queue.name = "com.llamamate.download"
+        queue.maxConcurrentOperationCount = 1
+        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: queue)
         let task = session.dataTask(with: request)
         delegate.task = task
 
@@ -165,7 +168,10 @@ private final class DownloadDelegate: NSObject, URLSessionDataDelegate {
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
         expectedLength = response.expectedContentLength
         if let http = response as? HTTPURLResponse {
-            logCallback("Server returned HTTP \(http.statusCode)\n")
+            let msg = "Server returned HTTP \(http.statusCode)\n"
+            DispatchQueue.main.async {
+                self.logCallback(msg)
+            }
         }
         completionHandler(.allow)
     }
@@ -175,10 +181,16 @@ private final class DownloadDelegate: NSObject, URLSessionDataDelegate {
         receivedLength += Int64(data.count)
         if expectedLength > 0 {
             let pct = Int(Double(receivedLength) / Double(expectedLength) * 100)
-            progressCallback(Double(receivedLength) / Double(expectedLength))
+            let progress = Double(receivedLength) / Double(expectedLength)
+            DispatchQueue.main.async {
+                self.progressCallback(progress)
+            }
             if pct != lastLoggedPercent && pct % 10 == 0 {
                 lastLoggedPercent = pct
-                logCallback("\(pct)% downloaded\n")
+                let msg = "\(pct)% downloaded\n"
+                DispatchQueue.main.async {
+                    self.logCallback(msg)
+                }
             }
         }
     }
@@ -187,19 +199,26 @@ private final class DownloadDelegate: NSObject, URLSessionDataDelegate {
         outputHandle?.closeFile()
 
         if let error = error as NSError? {
+            let msg: String
             if error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled {
-                logCallback("\nDownload cancelled.\n")
+                msg = "\nDownload cancelled.\n"
             } else {
-                logCallback("\nDownload error: \(error.localizedDescription)\n")
+                msg = "\nDownload error: \(error.localizedDescription)\n"
             }
-            completion(false)
+            DispatchQueue.main.async {
+                self.logCallback(msg)
+                self.completion(false)
+            }
             return
         }
 
         guard let http = task.response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             let code = (task.response as? HTTPURLResponse)?.statusCode ?? -1
-            logCallback("\nDownload failed with HTTP \(code).\n")
-            completion(false)
+            let msg = "\nDownload failed with HTTP \(code).\n"
+            DispatchQueue.main.async {
+                self.logCallback(msg)
+                self.completion(false)
+            }
             return
         }
 
@@ -210,11 +229,17 @@ private final class DownloadDelegate: NSObject, URLSessionDataDelegate {
             }
             try fm.moveItem(atPath: destination, toPath: finalDestination)
             success = true
-            logCallback("\nSaved to \(finalDestination)\n")
-            completion(true)
+            let msg = "\nSaved to \(finalDestination)\n"
+            DispatchQueue.main.async {
+                self.logCallback(msg)
+                self.completion(true)
+            }
         } catch {
-            logCallback("\nCould not finalize download: \(error.localizedDescription)\n")
-            completion(false)
+            let msg = "\nCould not finalize download: \(error.localizedDescription)\n"
+            DispatchQueue.main.async {
+                self.logCallback(msg)
+                self.completion(false)
+            }
         }
     }
 }

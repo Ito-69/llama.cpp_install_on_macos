@@ -91,6 +91,7 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
 
     private var browseContainerView: NSView!
     private var searchContainerView: NSView!
+    private var activeFilePicker: FilePickerController?
 
     private override init() { super.init() }
 
@@ -101,6 +102,7 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         descriptionLabel.isHidden = true
+        adjustLayout()
         refreshActive()
         refreshInstalled()
     }
@@ -131,7 +133,7 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
 
         // Tab view
         let tabHeight: CGFloat = 330
-        tabView = NSTabView(frame: NSRect(x: 16, y: 44, width: 688, height: tabHeight - 24))
+        tabView = NSTabView(frame: NSRect(x: 16, y: 20, width: 688, height: tabHeight))
         tabView.autoresizingMask = [.width, .height]
         tabView.delegate = self
 
@@ -150,7 +152,7 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         descriptionLabel.autoresizingMask = [.width, .minYMargin]
 
         // Footer
-        progressBar = NSProgressIndicator(frame: NSRect(x: 16, y: 86, width: 568, height: 14))
+        progressBar = NSProgressIndicator(frame: NSRect(x: 16, y: 92, width: 592, height: 14))
         progressBar.autoresizingMask = [.width, .minYMargin]
         progressBar.isIndeterminate = false
         progressBar.minValue = 0
@@ -159,13 +161,13 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         progressBar.isHidden = true
 
         progressLabel = NSTextField(labelWithString: "")
-        progressLabel.frame = NSRect(x: 16, y: 64, width: 688, height: 18)
+        progressLabel.frame = NSRect(x: 16, y: 70, width: 592, height: 18)
         progressLabel.font = NSFont.systemFont(ofSize: 11)
         progressLabel.textColor = .secondaryLabelColor
         progressLabel.autoresizingMask = [.width, .minYMargin]
         progressLabel.isHidden = true
 
-        let logScroll = NSScrollView(frame: NSRect(x: 16, y: 16, width: 568, height: 42))
+        let logScroll = NSScrollView(frame: NSRect(x: 16, y: 16, width: 592, height: 42))
         logScroll.autoresizingMask = [.width, .minYMargin]
         logScroll.hasVerticalScroller = true
         logScroll.borderType = .bezelBorder
@@ -185,7 +187,7 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
 
         cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancelDownload))
         cancelButton.bezelStyle = .rounded
-        cancelButton.frame = NSRect(x: 592, y: 24, width: 80, height: 24)
+        cancelButton.frame = NSRect(x: 624, y: 24, width: 80, height: 24)
         cancelButton.autoresizingMask = [.minXMargin, .minYMargin]
         cancelButton.isHidden = true
 
@@ -594,6 +596,11 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
             guard let self = self else { return }
             switch result {
             case .success(let files):
+                if let sourceStatus = sourceStatus {
+                    sourceStatus.stringValue = ""
+                } else {
+                    self.searchStatus.stringValue = ""
+                }
                 guard !files.isEmpty else {
                     let msg = "No GGUF quantizations found in this repo."
                     if let sourceStatus = sourceStatus { sourceStatus.stringValue = msg }
@@ -611,9 +618,18 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
 
     private func presentFilePicker(repo: String, files: [HFRepoFile], suggestedLabel: String) {
         guard let parent = window else { return }
-        let picker = FilePickerController(repo: repo, files: files, parentWindow: parent) { [weak self] file, label in
-            self?.startDownload(repo: repo, file: file, label: label)
-        }
+        let picker = FilePickerController(
+            repo: repo,
+            files: files,
+            parentWindow: parent,
+            onPick: { [weak self] file, label in
+                self?.startDownload(repo: repo, file: file, label: label)
+            },
+            onDismiss: { [weak self] in
+                self?.activeFilePicker = nil
+            }
+        )
+        self.activeFilePicker = picker
         picker.runFloating()
     }
 
@@ -633,8 +649,9 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         descriptionLabel.isHidden = true
         cancelButton.isHidden = false
         closeButton.isHidden = true
-        progressLabel.stringValue = "Downloading \(file)…"
         isDownloading = true
+        adjustLayout()
+        progressLabel.stringValue = "Downloading \(file)…"
 
         let model = ModelManager.shared
         let session = model.downloadModel(
@@ -662,11 +679,15 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
                 self.cancelButton.isHidden = true
                 self.closeButton.isHidden = false
                 self.logScroll.isHidden = true
+                self.adjustLayout()
                 if success {
                     self.progressLabel.stringValue = "Download finished."
                     self.afterDownload(repo: repo, file: file, label: label)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-                        self?.progressLabel.isHidden = true
+                        guard let self = self else { return }
+                        self.progressLabel.isHidden = true
+                        self.closeButton.isHidden = true
+                        self.adjustLayout()
                     }
                 } else {
                     self.progressLabel.stringValue = "Download failed."
@@ -704,7 +725,17 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc private func closeWindow() {
+        closeButton.isHidden = true
+        adjustLayout()
         window.close()
+    }
+
+    private func adjustLayout() {
+        if isDownloading || !closeButton.isHidden {
+            tabView.frame = NSRect(x: 16, y: 114, width: 688, height: 236)
+        } else {
+            tabView.frame = NSRect(x: 16, y: 20, width: 688, height: 330)
+        }
     }
 
     // MARK: Helpers
@@ -721,8 +752,8 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
 
 extension ModelsWindowController: NSTabViewDelegate {
     func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
-        descriptionLabel.stringValue = ""
-        descriptionLabel.isHidden = true
+        descriptionLabel?.stringValue = ""
+        descriptionLabel?.isHidden = true
     }
 }
 
@@ -811,19 +842,21 @@ extension ModelsWindowController: NSTableViewDataSource, NSTableViewDelegate {
 
 // MARK: - File Picker
 
-final class FilePickerController: NSObject {
+final class FilePickerController: NSObject, NSWindowDelegate {
     private let repo: String
     private let files: [HFRepoFile]
     private let parentWindow: NSWindow
     private let onPick: (String, String) -> Void
+    private let onDismiss: () -> Void
     private var panel: NSPanel!
     private var table: NSTableView!
 
-    init(repo: String, files: [HFRepoFile], parentWindow: NSWindow, onPick: @escaping (String, String) -> Void) {
+    init(repo: String, files: [HFRepoFile], parentWindow: NSWindow, onPick: @escaping (String, String) -> Void, onDismiss: @escaping () -> Void) {
         self.repo = repo
         self.files = files
         self.parentWindow = parentWindow
         self.onPick = onPick
+        self.onDismiss = onDismiss
     }
 
     func runFloating() {
@@ -879,6 +912,7 @@ final class FilePickerController: NSObject {
         content.addSubview(download)
         w.contentView = content
         panel = w
+        w.delegate = self
         w.makeKeyAndOrderFront(nil)
     }
 
@@ -899,6 +933,10 @@ final class FilePickerController: NSObject {
 
     @objc private func rowDoubleClicked() {
         downloadClicked()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        onDismiss()
     }
 }
 
