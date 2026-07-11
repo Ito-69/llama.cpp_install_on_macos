@@ -16,7 +16,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var batchField: NSTextField!
     private var portField: NSTextField!
     private var ramLabel: NSTextField!
+    private var diagnosticsLabel: NSTextField!
+    private var usageLabel: NSTextField!
     private var applyButton: NSButton!
+    private var usageTimer: Timer?
+    private var lastCpuSeconds: Double = 0
+    private var lastSampleTime: TimeInterval = 0
 
     private override init() { super.init() }
 
@@ -24,6 +29,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         if window == nil { buildWindow() }
         syncFromServerManager()
         updateRamEstimate()
+        updateUsage()
+        usageTimer?.invalidate()
+        usageTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.updateUsage()
+        }
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
     }
@@ -32,7 +42,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     private func buildWindow() {
         let w = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 460),
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 540),
             styleMask: [.titled, .closable],
             backing: .buffered, defer: false
         )
@@ -45,7 +55,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let content = NSView(frame: w.contentView!.bounds)
         content.autoresizingMask = [.width, .height]
 
-        var y: CGFloat = 420
+        var y: CGFloat = 500
 
         // ── Header ──
         let header = NSTextField(labelWithString: "Server Configuration")
@@ -153,7 +163,23 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         ramLabel.frame = NSRect(x: 16, y: y, width: 488, height: 36)
         ramLabel.font = NSFont.systemFont(ofSize: 11)
         content.addSubview(ramLabel)
-        y -= 60
+        y -= 48
+
+        // ── System diagnostics ──
+        diagnosticsLabel = NSTextField(wrappingLabelWithString: systemDiagnostics())
+        diagnosticsLabel.frame = NSRect(x: 16, y: y, width: 488, height: 32)
+        diagnosticsLabel.font = NSFont.systemFont(ofSize: 11)
+        diagnosticsLabel.textColor = .secondaryLabelColor
+        content.addSubview(diagnosticsLabel)
+        y -= 40
+
+        // ── App usage ──
+        usageLabel = NSTextField(wrappingLabelWithString: "")
+        usageLabel.frame = NSRect(x: 16, y: y, width: 488, height: 18)
+        usageLabel.font = NSFont.systemFont(ofSize: 11)
+        usageLabel.textColor = .secondaryLabelColor
+        content.addSubview(usageLabel)
+        y -= 34
 
         // ── Buttons ──
         let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancelClicked))
@@ -325,6 +351,83 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     // MARK: NSWindowDelegate
 
     func windowWillClose(_ notification: Notification) {
-        // re-sync in case user opens again
+        usageTimer?.invalidate()
+        usageTimer = nil
+    }
+
+    // MARK: Diagnostics
+
+    private func systemDiagnostics() -> String {
+        let os = ProcessInfo.processInfo.operatingSystemVersionString
+        let chip = chipName()
+        let ramGB = Double(ProcessInfo.processInfo.physicalMemory) / 1_000_000_000.0
+        let cores = ProcessInfo.processInfo.processorCount
+        return "macOS \(os) · \(chip) · \(String(format: "%.1f", ramGB)) GB RAM · \(cores) cores"
+    }
+
+    private func chipName() -> String {
+        var size = 0
+        sysctlbyname("hw.model", nil, &size, nil, 0)
+        var model = [CChar](repeating: 0, count: size)
+        sysctlbyname("hw.model", &model, &size, nil, 0)
+        return String(cString: model)
+    }
+
+    private func updateUsage() {
+        usageLabel.stringValue = appUsageString()
+    }
+
+    private func appUsageString() -> String {
+        let mem = memoryBytes()
+        let memMB = Double(mem) / 1_000_000.0
+        let cpu = cpuPercent()
+        return String(format: "LlamaMate: %.1f%% CPU · %.1f MB RAM", cpu, memMB)
+    }
+
+    private func memoryBytes() -> UInt64 {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+        let kr = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        if kr == KERN_SUCCESS {
+            return info.phys_footprint
+        }
+        return 0
+    }
+
+    private func cpuPercent() -> Double {
+        var threadList: thread_act_array_t?
+        var threadCount: mach_msg_type_number_t = 0
+        let kr = task_threads(mach_task_self_, &threadList, &threadCount)
+        guard kr == KERN_SUCCESS, let threads = threadList else { return 0 }
+        var totalSeconds: Double = 0
+        for i in 0..<Int(threadCount) {
+            var info = thread_basic_info()
+            var count = mach_msg_type_number_t(THREAD_INFO_MAX)
+            let kr2 = withUnsafeMutablePointer(to: &info) {
+                $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                    thread_info(threads[i], thread_flavor_t(THREAD_BASIC_INFO), $0, &count)
+                }
+            }
+            if kr2 == KERN_SUCCESS {
+                totalSeconds += Double(info.user_time.seconds) + Double(info.user_time.microseconds) / 1_000_000.0
+                totalSeconds += Double(info.system_time.seconds) + Double(info.system_time.microseconds) / 1_000_000.0
+            }
+        }
+        vm_deallocate(mach_task_self_, vm_address_t(bitPattern: threads), vm_size_t(Int(threadCount) * MemoryLayout<thread_t>.stride))
+
+        let now = Date.timeIntervalSinceReferenceDate
+        let delta = now - lastSampleTime
+        let cpuDelta = totalSeconds - lastCpuSeconds
+        lastCpuSeconds = totalSeconds
+        lastSampleTime = now
+
+        if delta > 0 {
+            return (cpuDelta / delta) * 100.0
+        }
+        return 0
     }
 }
