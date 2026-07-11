@@ -160,26 +160,26 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
         // ── RAM estimate ──
         ramLabel = NSTextField(wrappingLabelWithString: "")
-        ramLabel.frame = NSRect(x: 16, y: y, width: 488, height: 36)
+        ramLabel.frame = NSRect(x: 16, y: y, width: 488, height: 28)
         ramLabel.font = NSFont.systemFont(ofSize: 11)
         content.addSubview(ramLabel)
-        y -= 48
+        y -= 32
 
         // ── System diagnostics ──
         diagnosticsLabel = NSTextField(wrappingLabelWithString: systemDiagnostics())
-        diagnosticsLabel.frame = NSRect(x: 16, y: y, width: 488, height: 32)
+        diagnosticsLabel.frame = NSRect(x: 16, y: y, width: 488, height: 28)
         diagnosticsLabel.font = NSFont.systemFont(ofSize: 11)
         diagnosticsLabel.textColor = .secondaryLabelColor
         content.addSubview(diagnosticsLabel)
-        y -= 40
+        y -= 30
 
         // ── App usage ──
         usageLabel = NSTextField(wrappingLabelWithString: "")
-        usageLabel.frame = NSRect(x: 16, y: y, width: 488, height: 18)
+        usageLabel.frame = NSRect(x: 16, y: y, width: 488, height: 32)
         usageLabel.font = NSFont.systemFont(ofSize: 11)
         usageLabel.textColor = .secondaryLabelColor
         content.addSubview(usageLabel)
-        y -= 34
+        y -= 28
 
         // ── Buttons ──
         let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancelClicked))
@@ -374,7 +374,27 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     }
 
     private func updateUsage() {
-        usageLabel.stringValue = appUsageString()
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let selfCpu = self?.cpuPercent() ?? 0
+            let selfMem = self?.memoryBytes() ?? 0
+            let (serverCpu, serverMem) = self?.serverProcessUsage() ?? (nil, nil)
+            let gpu = self?.gpuUtilization()
+
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                var parts: [String] = []
+                parts.append(String(format: "LlamaMate: %.1f%% CPU · %.1f MB RAM", selfCpu, Double(selfMem) / 1_000_000.0))
+
+                if let sc = serverCpu, let sm = serverMem {
+                    let gpuText = gpu != nil ? String(format: " · GPU %.0f%%", gpu!) : ""
+                    parts.append(String(format: "llama-server: %.1f%% CPU · %.1f MB RAM%@", sc, sm, gpuText))
+                } else {
+                    parts.append("llama-server: not running")
+                }
+
+                self.usageLabel.stringValue = parts.joined(separator: "  |  ")
+            }
+        }
     }
 
     private func appUsageString() -> String {
@@ -429,5 +449,46 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             return (cpuDelta / delta) * 100.0
         }
         return 0
+    }
+
+    // MARK: - External process monitoring
+
+    private func serverProcessUsage() -> (cpu: Double, ramMB: Double)? {
+        guard let output = runShell("/bin/ps", args: ["-A", "-o", "pid=,pcpu=,rss=,comm="]) else { return nil }
+        for line in output.split(separator: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.contains("llama-server") else { continue }
+            let parts = trimmed.split(separator: " ", omittingEmptySubsequences: true)
+            guard parts.count >= 3 else { continue }
+            if let cpu = Double(parts[1]), let rss = Double(parts[2]) {
+                return (cpu, rss / 1024.0)
+            }
+        }
+        return nil
+    }
+
+    private func gpuUtilization() -> Double? {
+        guard let output = runShell("/usr/sbin/ioreg", args: ["-r", "-c", "IOAccelerator"]) else { return nil }
+        guard let range = output.range(of: "\"Device Utilization %\"=") else { return nil }
+        let tail = output[range.upperBound...]
+        let valuePart = tail.prefix(while: { $0.isNumber })
+        return Double(valuePart)
+    }
+
+    private func runShell(_ path: String, args: [String]) -> String? {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: path)
+        task.arguments = args
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.standardError = Pipe()
+        do {
+            try task.run()
+            task.waitUntilExit()
+        } catch {
+            return nil
+        }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8)
     }
 }
