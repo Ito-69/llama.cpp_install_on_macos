@@ -86,7 +86,7 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
     private var urlField: NSTextField!
     private var urlStatus: NSTextField!
 
-    private var activeDownloadTask: Process?
+    private var activeDownloadTask: ModelDownloadSession?
     private var isDownloading = false
 
     private var browseContainerView: NSView!
@@ -633,7 +633,7 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         isDownloading = true
 
         let model = ModelManager.shared
-        let task = model.downloadModel(
+        let session = model.downloadModel(
             repo: repo,
             file: file,
             logCallback: { [weak self] s in
@@ -649,32 +649,28 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
                 guard let self = self else { return }
                 self.progressBar.doubleValue = p
                 self.progressLabel.stringValue = String(format: "Downloading %@ — %.0f%%", file, p * 100)
-            }
-        )
-        activeDownloadTask = task
-        DispatchQueue.global(qos: .userInitiated).async {
-            task.waitUntilExit()
-            DispatchQueue.main.async { [weak self] in
+            },
+            completion: { [weak self] success in
                 guard let self = self else { return }
-                let code = task.terminationStatus
                 self.isDownloading = false
                 self.activeDownloadTask = nil
                 self.progressBar.isHidden = true
                 self.cancelButton.isHidden = true
                 self.closeButton.isHidden = false
                 self.logScroll.isHidden = true
-                if code == 0 {
+                if success {
                     self.progressLabel.stringValue = "Download finished."
                     self.afterDownload(repo: repo, file: file, label: label)
                 } else {
-                    self.progressLabel.stringValue = "Download failed (exit \(code))."
+                    self.progressLabel.stringValue = "Download failed."
                 }
             }
-        }
+        )
+        activeDownloadTask = session
     }
 
     @objc private func cancelDownload() {
-        activeDownloadTask?.terminate()
+        activeDownloadTask?.cancel()
     }
 
     private func afterDownload(repo: String, file: String, label: String) {

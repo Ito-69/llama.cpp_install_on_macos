@@ -20,8 +20,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var usageLabel: NSTextField!
     private var applyButton: NSButton!
     private var usageTimer: Timer?
-    private var lastCpuSeconds: Double = 0
-    private var lastSampleTime: TimeInterval = 0
 
     private override init() { super.init() }
 
@@ -174,7 +172,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         y -= 30
 
         // ── App usage ──
-        usageLabel = NSTextField(wrappingLabelWithString: "")
+        usageLabel = NSTextField(wrappingLabelWithString: "Gathering usage…")
         usageLabel.frame = NSRect(x: 16, y: y, width: 488, height: 32)
         usageLabel.font = NSFont.systemFont(ofSize: 11)
         usageLabel.textColor = .secondaryLabelColor
@@ -375,19 +373,22 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     private func updateUsage() {
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            let selfCpu = self?.cpuPercent() ?? 0
-            let selfMem = self?.memoryBytes() ?? 0
-            let (serverCpu, serverMem) = self?.serverProcessUsage() ?? (nil, nil)
+            let processes = self?.processUsageFromPS() ?? [:]
             let gpu = self?.gpuUtilization()
 
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 var parts: [String] = []
-                parts.append(String(format: "LlamaMate: %.1f%% CPU · %.1f MB RAM", selfCpu, Double(selfMem) / 1_000_000.0))
 
-                if let sc = serverCpu, let sm = serverMem {
+                if let mate = processes["llmctl"] {
+                    parts.append(String(format: "LlamaMate: %.1f%% CPU · %.1f MB RAM", mate.cpu, mate.ramMB))
+                } else {
+                    parts.append("LlamaMate: —")
+                }
+
+                if let server = processes["llama-server"] {
                     let gpuText = gpu != nil ? String(format: " · GPU %.0f%%", gpu!) : ""
-                    parts.append(String(format: "llama-server: %.1f%% CPU · %.1f MB RAM%@", sc, sm, gpuText))
+                    parts.append(String(format: "llama-server: %.1f%% CPU · %.1f MB RAM%@", server.cpu, server.ramMB, gpuText))
                 } else {
                     parts.append("llama-server: not running")
                 }
@@ -398,73 +399,28 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     }
 
     private func appUsageString() -> String {
-        let mem = memoryBytes()
-        let memMB = Double(mem) / 1_000_000.0
-        let cpu = cpuPercent()
-        return String(format: "LlamaMate: %.1f%% CPU · %.1f MB RAM", cpu, memMB)
-    }
-
-    private func memoryBytes() -> UInt64 {
-        var info = task_vm_info_data_t()
-        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
-        let kr = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
-            }
-        }
-        if kr == KERN_SUCCESS {
-            return info.phys_footprint
-        }
-        return 0
-    }
-
-    private func cpuPercent() -> Double {
-        var threadList: thread_act_array_t?
-        var threadCount: mach_msg_type_number_t = 0
-        let kr = task_threads(mach_task_self_, &threadList, &threadCount)
-        guard kr == KERN_SUCCESS, let threads = threadList else { return 0 }
-        var totalSeconds: Double = 0
-        for i in 0..<Int(threadCount) {
-            var info = thread_basic_info()
-            var count = mach_msg_type_number_t(THREAD_INFO_MAX)
-            let kr2 = withUnsafeMutablePointer(to: &info) {
-                $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-                    thread_info(threads[i], thread_flavor_t(THREAD_BASIC_INFO), $0, &count)
-                }
-            }
-            if kr2 == KERN_SUCCESS {
-                totalSeconds += Double(info.user_time.seconds) + Double(info.user_time.microseconds) / 1_000_000.0
-                totalSeconds += Double(info.system_time.seconds) + Double(info.system_time.microseconds) / 1_000_000.0
-            }
-        }
-        vm_deallocate(mach_task_self_, vm_address_t(bitPattern: threads), vm_size_t(Int(threadCount) * MemoryLayout<thread_t>.stride))
-
-        let now = Date.timeIntervalSinceReferenceDate
-        let delta = now - lastSampleTime
-        let cpuDelta = totalSeconds - lastCpuSeconds
-        lastCpuSeconds = totalSeconds
-        lastSampleTime = now
-
-        if delta > 0 {
-            return (cpuDelta / delta) * 100.0
-        }
-        return 0
+        return "Gathering usage…"
     }
 
     // MARK: - External process monitoring
 
-    private func serverProcessUsage() -> (cpu: Double, ramMB: Double)? {
-        guard let output = runShell("/bin/ps", args: ["-A", "-o", "pid=,pcpu=,rss=,comm="]) else { return nil }
+    private func processUsageFromPS() -> [String: (cpu: Double, ramMB: Double)] {
+        guard let output = runShell("/bin/ps", args: ["-A", "-o", "pid=,pcpu=,rss=,comm="]) else { return [:] }
+        var result: [String: (cpu: Double, ramMB: Double)] = [:]
         for line in output.split(separator: "\n") {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard trimmed.contains("llama-server") else { continue }
             let parts = trimmed.split(separator: " ", omittingEmptySubsequences: true)
             guard parts.count >= 3 else { continue }
-            if let cpu = Double(parts[1]), let rss = Double(parts[2]) {
-                return (cpu, rss / 1024.0)
+            guard let cpu = Double(parts[1]), let rss = Double(parts[2]) else { continue }
+            let ramMB = rss / 1024.0
+            let comm = String(parts[3])
+            if comm.contains("llmctl") {
+                result["llmctl"] = (cpu, ramMB)
+            } else if comm.contains("llama-server") {
+                result["llama-server"] = (cpu, ramMB)
             }
         }
-        return nil
+        return result
     }
 
     private func gpuUtilization() -> Double? {

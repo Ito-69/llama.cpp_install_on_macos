@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-VERSION="2.3.10"
+VERSION="2.3.11"
 APP_NAME="LlamaMate"
 BUILD_ARM64=".build/arm64/release"
 BUILD_X86_64=".build/x86_64/release"

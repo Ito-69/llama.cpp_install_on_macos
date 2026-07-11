@@ -10,26 +10,29 @@ struct InstalledModel {
     var isActive: Bool { path == ModelManager.shared.activeModelPath() }
 }
 
+// MARK: - Download Session
+
+/// Holds a URLSessionDataTask and its delegate so the session does not deallocate the delegate.
+final class ModelDownloadSession {
+    private let session: URLSession
+    let task: URLSessionDataTask
+
+    init(session: URLSession, task: URLSessionDataTask) {
+        self.session = session
+        self.task = task
+    }
+
+    func cancel() {
+        task.cancel()
+    }
+}
+
 // MARK: - Model Manager
 
 final class ModelManager {
     static let shared = ModelManager()
 
     let modelsDir = NSHomeDirectory() + "/models"
-
-    private static func pythonVersion() -> String {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-        let pipe = Pipe()
-        task.standardOutput = pipe
-        try? task.run()
-        task.waitUntilExit()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        let ver = String(data: data, encoding: .utf8) ?? ""
-        let parts = ver.split(separator: ".")
-        if parts.count >= 2 { return "\(parts[0]).\(parts[1])" }
-        return "3.11"
-    }
 
     func activeModelPath() -> String {
         ConfigManager.shared.read().modelPath
@@ -87,56 +90,131 @@ final class ModelManager {
 
     // MARK: Download
 
-    /// Spawns `python3 -m huggingface_hub download <repo> <filename> --local-dir <modelsDir>`
-    /// Streams stdout/stderr to logCallback, parses percentage into progressCallback.
-    /// Returns the Process so the caller can cancel.
-    @discardableResult
+    /// Downloads a GGUF file directly from Hugging Face using URLSession.
+    /// Tracks progress and streams short status messages to logCallback.
+    /// Returns a ModelDownloadSession so the caller can cancel.
     func downloadModel(
         repo: String,
         file: String,
         logCallback: @escaping (String) -> Void,
-        progressCallback: @escaping (Double) -> Void
-    ) -> Process {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-        task.arguments = ["-m", "huggingface_hub", "download", repo, file, "--local-dir", modelsDir]
-        var env = ProcessInfo.processInfo.environment
-        env["DYLD_LIBRARY_PATH"] = NSHomeDirectory() + "/.local/lib"
-        if let hfToken = UserDefaults.standard.string(forKey: "hf_token"), !hfToken.isEmpty {
-            env["HF_TOKEN"] = hfToken
+        progressCallback: @escaping (Double) -> Void,
+        completion: @escaping (Bool) -> Void
+    ) -> ModelDownloadSession {
+        let fm = FileManager.default
+        try? fm.createDirectory(atPath: modelsDir, withIntermediateDirectories: true, attributes: nil)
+
+        let destination = modelsDir + "/" + file
+        let tempDestination = destination + ".download"
+        let url = URL(string: "https://huggingface.co/\(repo)/resolve/main/\(file.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? file)")!
+
+        var request = URLRequest(url: url)
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
+        if let token = UserDefaults.standard.string(forKey: "hf_token"), !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
-        task.environment = env
 
-        let outPipe = Pipe()
-        let errPipe = Pipe()
-        task.standardOutput = outPipe
-        task.standardError = errPipe
+        let delegate = DownloadDelegate(
+            destination: tempDestination,
+            finalDestination: destination,
+            logCallback: logCallback,
+            progressCallback: progressCallback,
+            completion: completion
+        )
+        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: .main)
+        let task = session.dataTask(with: request)
+        delegate.task = task
 
-        let percentRegex = try? NSRegularExpression(pattern: "(\\d{1,3})%\\|", options: [])
+        logCallback("Downloading \(file) from \(repo)\n")
+        task.resume()
 
-        outPipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            guard !data.isEmpty, let s = String(data: data, encoding: .utf8) else { return }
-            DispatchQueue.main.async { logCallback(s) }
-            if let regex = percentRegex {
-                let range = NSRange(s.startIndex..<s.endIndex, in: s)
-                if let m = regex.firstMatch(in: s, options: [], range: range),
-                   let r = Range(m.range(at: 1), in: s), let pct = Double(s[r]) {
-                    DispatchQueue.main.async { progressCallback(pct / 100.0) }
-                }
+        return ModelDownloadSession(session: session, task: task)
+    }
+}
+
+// MARK: - Download Delegate
+
+private final class DownloadDelegate: NSObject, URLSessionDataDelegate {
+    private let destination: String
+    private let finalDestination: String
+    private let logCallback: (String) -> Void
+    private let progressCallback: (Double) -> Void
+    private let completion: (Bool) -> Void
+    private var outputHandle: FileHandle?
+    private var expectedLength: Int64 = -1
+    private var receivedLength: Int64 = 0
+    private var lastLoggedPercent: Int = -1
+    private var success = false
+    weak var task: URLSessionDataTask?
+
+    init(destination: String, finalDestination: String, logCallback: @escaping (String) -> Void, progressCallback: @escaping (Double) -> Void, completion: @escaping (Bool) -> Void) {
+        self.destination = destination
+        self.finalDestination = finalDestination
+        self.logCallback = logCallback
+        self.progressCallback = progressCallback
+        self.completion = completion
+        super.init()
+
+        let fm = FileManager.default
+        if fm.fileExists(atPath: destination) {
+            try? fm.removeItem(atPath: destination)
+        }
+        fm.createFile(atPath: destination, contents: nil, attributes: nil)
+        outputHandle = FileHandle(forWritingAtPath: destination)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        expectedLength = response.expectedContentLength
+        if let http = response as? HTTPURLResponse {
+            logCallback("Server returned HTTP \(http.statusCode)\n")
+        }
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        outputHandle?.write(data)
+        receivedLength += Int64(data.count)
+        if expectedLength > 0 {
+            let pct = Int(Double(receivedLength) / Double(expectedLength) * 100)
+            progressCallback(Double(receivedLength) / Double(expectedLength))
+            if pct != lastLoggedPercent && pct % 10 == 0 {
+                lastLoggedPercent = pct
+                logCallback("\(pct)% downloaded\n")
             }
         }
-        errPipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            guard !data.isEmpty, let s = String(data: data, encoding: .utf8) else { return }
-            DispatchQueue.main.async { logCallback(s) }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        outputHandle?.closeFile()
+
+        if let error = error as NSError? {
+            if error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled {
+                logCallback("\nDownload cancelled.\n")
+            } else {
+                logCallback("\nDownload error: \(error.localizedDescription)\n")
+            }
+            completion(false)
+            return
         }
 
-        do {
-            try task.run()
-        } catch {
-            DispatchQueue.main.async { logCallback("\nFailed to start download: \(error.localizedDescription)\n") }
+        guard let http = task.response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            let code = (task.response as? HTTPURLResponse)?.statusCode ?? -1
+            logCallback("\nDownload failed with HTTP \(code).\n")
+            completion(false)
+            return
         }
-        return task
+
+        let fm = FileManager.default
+        do {
+            if fm.fileExists(atPath: finalDestination) {
+                try fm.removeItem(atPath: finalDestination)
+            }
+            try fm.moveItem(atPath: destination, toPath: finalDestination)
+            success = true
+            logCallback("\nSaved to \(finalDestination)\n")
+            completion(true)
+        } catch {
+            logCallback("\nCould not finalize download: \(error.localizedDescription)\n")
+            completion(false)
+        }
     }
 }
