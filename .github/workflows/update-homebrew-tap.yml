@@ -72,6 +72,13 @@ jobs:
           cd tap
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Close any stale open bump PRs so they do not conflict with the new one
+          gh pr list --repo Ito-69/homebrew-llamamate --state open --json number,headRefName --jq '.[] | select(.headRefName | startswith("bump-llamamate-")) | .number' | while read -r prnum; do
+            echo "Closing stale PR #${prnum}"
+            gh pr close "$prnum" --repo Ito-69/homebrew-llamamate --delete-branch || true
+          done
+
           git branch -D "bump-llamamate-${VER}" 2>/dev/null || true
           git push origin --delete "bump-llamamate-${VER}" 2>/dev/null || true
           git checkout -b "bump-llamamate-${VER}"
@@ -85,3 +92,15 @@ jobs:
             --base main \
             --title "llamamate ${VER}" \
             --body "Automated update from llama.cpp_install_on_macos release v${VER}."
+
+      - name: Auto-merge PR
+        env:
+          GH_TOKEN: ${{ secrets.TAP_REPO_TOKEN }}
+          VER: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          sleep 5
+          gh pr merge "bump-llamamate-${VER}" \
+            --repo Ito-69/homebrew-llamamate \
+            --squash \
+            --delete-branch
