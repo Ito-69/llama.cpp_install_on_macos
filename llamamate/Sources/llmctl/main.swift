@@ -495,13 +495,14 @@ final class AppUpdateManager {
                 let alert = NSAlert()
                 alert.messageText = "Update Available"
                 if self.isInstalledViaHomebrew() {
-                    alert.informativeText = "LlamaMate v\(v) is available.\n\nYou installed via Homebrew. Run this in Terminal to upgrade:\n\nbrew upgrade --cask llamamate"
+                    let command = "brew update && brew upgrade --cask llamamate"
+                    alert.informativeText = "LlamaMate v\(v) is available.\n\nYou installed via Homebrew. Run this in Terminal to upgrade:\n\n\(command)"
                     alert.addButton(withTitle: "Copy Command")
                     alert.addButton(withTitle: "Cancel")
                     if alert.runModal() == .alertFirstButtonReturn {
                         let pasteboard = NSPasteboard.general
                         pasteboard.clearContents()
-                        pasteboard.setString("brew upgrade --cask llamamate", forType: .string)
+                        pasteboard.setString(command, forType: .string)
                     }
                 } else {
                     alert.informativeText = "LlamaMate v\(v) is available. Download from GitHub?"
