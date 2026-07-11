@@ -607,10 +607,11 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
     }
 
     private func presentFilePicker(repo: String, files: [HFRepoFile], suggestedLabel: String) {
-        let picker = FilePickerController(repo: repo, files: files) { [weak self] file, label in
+        guard let parent = window else { return }
+        let picker = FilePickerController(repo: repo, files: files, parentWindow: parent) { [weak self] file, label in
             self?.startDownload(repo: repo, file: file, label: label)
         }
-        picker.runModal()
+        picker.runSheet()
     }
 
     // MARK: Download
@@ -661,6 +662,9 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
                 if success {
                     self.progressLabel.stringValue = "Download finished."
                     self.afterDownload(repo: repo, file: file, label: label)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                        self?.progressLabel.isHidden = true
+                    }
                 } else {
                     self.progressLabel.stringValue = "Download failed."
                 }
@@ -800,25 +804,25 @@ extension ModelsWindowController: NSTableViewDataSource, NSTableViewDelegate {
 final class FilePickerController: NSObject {
     private let repo: String
     private let files: [HFRepoFile]
+    private let parentWindow: NSWindow
     private let onPick: (String, String) -> Void
     private var panel: NSPanel!
     private var table: NSTableView!
 
-    init(repo: String, files: [HFRepoFile], onPick: @escaping (String, String) -> Void) {
+    init(repo: String, files: [HFRepoFile], parentWindow: NSWindow, onPick: @escaping (String, String) -> Void) {
         self.repo = repo
         self.files = files
+        self.parentWindow = parentWindow
         self.onPick = onPick
     }
 
-    func runModal() {
+    func runSheet() {
         let w = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 380),
             styleMask: [.titled, .closable],
             backing: .buffered, defer: false
         )
         w.title = "Pick a file — \(repo)"
-        w.isFloatingPanel = true
-        w.hidesOnDeactivate = false
         let content = NSView(frame: w.contentView!.bounds)
         content.autoresizingMask = [.width, .height]
 
@@ -861,12 +865,16 @@ final class FilePickerController: NSObject {
         content.addSubview(download)
         w.contentView = content
         panel = w
-        NSApp.runModal(for: w)
+        parentWindow.beginSheet(w, completionHandler: nil)
+    }
+
+    private func dismissSheet() {
+        guard let sheetParent = panel.sheetParent else { return }
+        sheetParent.endSheet(panel)
     }
 
     @objc private func cancelClicked() {
-        NSApp.stopModal(withCode: .cancel)
-        panel.close()
+        dismissSheet()
     }
 
     @objc private func downloadClicked() {
@@ -876,9 +884,8 @@ final class FilePickerController: NSObject {
             return
         }
         let f = files[row]
+        dismissSheet()
         onPick(f.path, f.path)
-        NSApp.stopModal(withCode: .OK)
-        panel.close()
     }
 
     @objc private func rowDoubleClicked() {

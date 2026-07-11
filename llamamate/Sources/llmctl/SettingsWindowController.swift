@@ -20,6 +20,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var usageLabel: NSTextField!
     private var applyButton: NSButton!
     private var usageTimer: Timer?
+    private var lastSelfCpuTime: Double = 0
+    private var lastSelfSampleTime: TimeInterval = 0
 
     private override init() { super.init() }
 
@@ -154,22 +156,22 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         // ── Separator ──
         let sep2 = separator(frame: NSRect(x: 16, y: y, width: 488, height: 1))
         content.addSubview(sep2)
-        y -= 20
+        y -= 32
 
         // ── RAM estimate ──
         ramLabel = NSTextField(wrappingLabelWithString: "")
-        ramLabel.frame = NSRect(x: 16, y: y, width: 488, height: 28)
+        ramLabel.frame = NSRect(x: 16, y: y, width: 488, height: 26)
         ramLabel.font = NSFont.systemFont(ofSize: 11)
         content.addSubview(ramLabel)
-        y -= 32
+        y -= 30
 
         // ── System diagnostics ──
         diagnosticsLabel = NSTextField(wrappingLabelWithString: systemDiagnostics())
-        diagnosticsLabel.frame = NSRect(x: 16, y: y, width: 488, height: 28)
+        diagnosticsLabel.frame = NSRect(x: 16, y: y, width: 488, height: 26)
         diagnosticsLabel.font = NSFont.systemFont(ofSize: 11)
         diagnosticsLabel.textColor = .secondaryLabelColor
         content.addSubview(diagnosticsLabel)
-        y -= 30
+        y -= 28
 
         // ── App usage ──
         usageLabel = NSTextField(wrappingLabelWithString: "Gathering usage…")
@@ -373,20 +375,16 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     private func updateUsage() {
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            let processes = self?.processUsageFromPS() ?? [:]
-            let gpu = self?.gpuUtilization()
+            guard let self = self else { return }
+            let selfUsage = self.selfUsageFromRusage()
+            let serverUsage = self.serverUsageFromPS()
+            let gpu = self.gpuUtilization()
 
             DispatchQueue.main.async {
-                guard let self = self else { return }
                 var parts: [String] = []
+                parts.append(String(format: "LlamaMate: %.1f%% CPU · %.1f MB RAM", selfUsage.cpu, selfUsage.ramMB))
 
-                if let mate = processes["llmctl"] {
-                    parts.append(String(format: "LlamaMate: %.1f%% CPU · %.1f MB RAM", mate.cpu, mate.ramMB))
-                } else {
-                    parts.append("LlamaMate: —")
-                }
-
-                if let server = processes["llama-server"] {
+                if let server = serverUsage {
                     let gpuText = gpu != nil ? String(format: " · GPU %.0f%%", gpu!) : ""
                     parts.append(String(format: "llama-server: %.1f%% CPU · %.1f MB RAM%@", server.cpu, server.ramMB, gpuText))
                 } else {
@@ -402,25 +400,43 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         return "Gathering usage…"
     }
 
-    // MARK: - External process monitoring
+    // MARK: - Process monitoring
 
-    private func processUsageFromPS() -> [String: (cpu: Double, ramMB: Double)] {
-        guard let output = runShell("/bin/ps", args: ["-A", "-o", "pid=,pcpu=,rss=,comm="]) else { return [:] }
-        var result: [String: (cpu: Double, ramMB: Double)] = [:]
+    private func selfUsageFromRusage() -> (cpu: Double, ramMB: Double) {
+        var usage = rusage()
+        getrusage(RUSAGE_SELF, &usage)
+        let userSec = Double(usage.ru_utime.tv_sec) + Double(usage.ru_utime.tv_usec) / 1_000_000.0
+        let sysSec = Double(usage.ru_stime.tv_sec) + Double(usage.ru_stime.tv_usec) / 1_000_000.0
+        let totalSec = userSec + sysSec
+
+        let now = Date.timeIntervalSinceReferenceDate
+        let delta = now - lastSelfSampleTime
+        let cpuDelta = totalSec - lastSelfCpuTime
+        lastSelfCpuTime = totalSec
+        lastSelfSampleTime = now
+
+        let cpu: Double
+        if delta > 0 {
+            cpu = (cpuDelta / delta) * 100.0
+        } else {
+            cpu = 0
+        }
+        let ramMB = Double(usage.ru_maxrss) / 1024.0
+        return (cpu, ramMB)
+    }
+
+    private func serverUsageFromPS() -> (cpu: Double, ramMB: Double)? {
+        guard let output = runShell("/bin/ps", args: ["-A", "-o", "pid=,pcpu=,rss=,comm="]) else { return nil }
         for line in output.split(separator: "\n") {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.contains("llama-server") else { continue }
             let parts = trimmed.split(separator: " ", omittingEmptySubsequences: true)
             guard parts.count >= 3 else { continue }
-            guard let cpu = Double(parts[1]), let rss = Double(parts[2]) else { continue }
-            let ramMB = rss / 1024.0
-            let comm = String(parts[3])
-            if comm.contains("llmctl") {
-                result["llmctl"] = (cpu, ramMB)
-            } else if comm.contains("llama-server") {
-                result["llama-server"] = (cpu, ramMB)
+            if let cpu = Double(parts[1]), let rss = Double(parts[2]) {
+                return (cpu, rss / 1024.0)
             }
         }
-        return result
+        return nil
     }
 
     private func gpuUtilization() -> Double? {
@@ -435,16 +451,19 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: path)
         task.arguments = args
-        let pipe = Pipe()
-        task.standardOutput = pipe
-        task.standardError = Pipe()
+        let outPipe = Pipe()
+        let errPipe = Pipe()
+        task.standardOutput = outPipe
+        task.standardError = errPipe
         do {
             try task.run()
             task.waitUntilExit()
         } catch {
             return nil
         }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        // Drain stderr to avoid pipe deadlock
+        _ = errPipe.fileHandleForReading.readDataToEndOfFile()
+        let data = outPipe.fileHandleForReading.readDataToEndOfFile()
         return String(data: data, encoding: .utf8)
     }
 }
