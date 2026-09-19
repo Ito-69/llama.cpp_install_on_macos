@@ -394,7 +394,7 @@ final class UpdateManager: NSObject {
                 outputCallback: { append($0) }
             )
 
-            let updateAvailable = isCheck && fullOut.contains("newer version available")
+            let updateAvailable = isCheck && (fullOut.contains("newer version available") || fullOut.contains("(not installed)"))
 
             DispatchQueue.main.async {
                 if isCheck {

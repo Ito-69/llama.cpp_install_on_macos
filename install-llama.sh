@@ -393,34 +393,62 @@ get_llama_version_string() {
     return
   fi
 
-  # 1) From libllama dylib (instant) — e.g. libllama.0.0.9159.dylib
-  for lib in "${LOCAL_LIB}"/libllama.[0-9]*.[0-9]*.dylib; do
-    [[ -f "$lib" ]] || continue
-    base="$(basename "$lib" .dylib)"
-    ver="${base##*.}"
-    [[ "$ver" =~ ^[0-9]+$ ]] && { echo "build ${ver}"; return; }
-  done
+  export DYLD_LIBRARY_PATH="${LOCAL_LIB}:${DYLD_LIBRARY_PATH:-}"
 
-  # 2) strings in binary (fast, no Metal init)
-  ver="$(strings "$bin" 2>/dev/null | grep -m1 '^version: ' | sed 's/^version: //' | tr -d '\r' || true)"
-  [[ -n "$ver" ]] && { echo "$ver"; return; }
-
-  # 3) --version (slow; pipefail + SIGPIPE otherwise yields "unknown")
+  # 1) Try --version (accurate and fast: includes build number and commit)
   set +o pipefail
   ver="$("${bin}" --version 2>&1 | grep -m1 '^version: ' | sed 's/^version: //' | tr -d '\r' || true)"
   set -o pipefail
-  [[ -n "$ver" ]] && { echo "$ver"; return; }
+  if [[ -n "$ver" ]]; then
+    echo "$ver"
+    return
+  fi
+
+  # 2) strings in binary
+  ver="$(strings "$bin" 2>/dev/null | grep -m1 '^version: ' | sed 's/^version: //' | tr -d '\r' || true)"
+  if [[ -n "$ver" ]]; then
+    echo "$ver"
+    return
+  fi
+
+  # 3) Legacy dylib e.g. libllama.0.0.9159.dylib (build number >= 1000)
+  for lib in "${LOCAL_LIB}"/libllama.0.0.[0-9]*.dylib; do
+    [[ -f "$lib" ]] || continue
+    base="$(basename "$lib" .dylib)"
+    ver="${base##*.}"
+    [[ "$ver" =~ ^[0-9]{3,}$ ]] && { echo "build ${ver}"; return; }
+  done
 
   echo "unknown"
 }
 
 get_installed_build_number() {
-  local v
-  if [[ -x "${LOCAL_BIN}/llama-server" ]]; then
-    v="$(get_llama_version_string "${LOCAL_BIN}/llama-server")"
-    v="$(echo "$v" | grep -oE '[0-9]+' | tail -1)"
-    [[ -n "$v" ]] && { echo "$v"; return; }
+  local b cmd
+  export DYLD_LIBRARY_PATH="${LOCAL_LIB}:${DYLD_LIBRARY_PATH:-}"
+
+  for cmd in "${LOCAL_BIN}/llama-cli" "${LOCAL_BIN}/llama-server"; do
+    if [[ -x "$cmd" ]]; then
+      b="$("$cmd" --version 2>&1 | sed -nE 's/.*build ([0-9]{3,}).*/\1/p' || true)"
+      if [[ -n "$b" && "$b" -gt 0 ]]; then
+        echo "$b"
+        return
+      fi
+    fi
+  done
+
+  if [[ -f "$CONFIG_FILE" ]]; then
+    b="$(grep -E '^LLAMA_VERSION=' "$CONFIG_FILE" 2>/dev/null | sed -nE 's/.*([0-9]{4,}).*/\1/p' || true)"
+    [[ -n "$b" && "$b" -gt 0 ]] && { echo "$b"; return; }
   fi
+
+  for lib in "${LOCAL_LIB}"/libllama.0.0.[0-9]*.dylib; do
+    [[ -f "$lib" ]] || continue
+    local base ver
+    base="$(basename "$lib" .dylib)"
+    ver="${base##*.}"
+    [[ "$ver" =~ ^[0-9]{3,}$ ]] && { echo "$ver"; return; }
+  done
+
   echo "0"
 }
 
