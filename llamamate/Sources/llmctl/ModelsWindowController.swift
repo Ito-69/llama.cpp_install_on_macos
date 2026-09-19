@@ -119,14 +119,14 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
 
     private func buildWindow() {
         let w = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 720, height: 400),
+            contentRect: NSRect(x: 0, y: 0, width: 740, height: 480),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered, defer: false
         )
         w.title = "Models"
         w.isFloatingPanel = true
         w.hidesOnDeactivate = false
-        w.minSize = NSSize(width: 640, height: 380)
+        w.minSize = NSSize(width: 660, height: 400)
         w.delegate = self
         w.center()
 
@@ -135,13 +135,12 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
 
         // Header
         headerLabel = NSTextField(labelWithString: "Active: —")
-        headerLabel.frame = NSRect(x: 16, y: 360, width: 688, height: 20)
+        headerLabel.frame = NSRect(x: 16, y: 444, width: 708, height: 20)
         headerLabel.font = NSFont.boldSystemFont(ofSize: 12)
         headerLabel.autoresizingMask = [.width, .minYMargin]
 
-        // Tab view
-        let tabHeight: CGFloat = 330
-        tabView = NSTabView(frame: NSRect(x: 16, y: 20, width: 688, height: tabHeight))
+        // Tab view (takes all space between header and footer)
+        tabView = NSTabView(frame: NSRect(x: 16, y: 36, width: 708, height: 400))
         tabView.autoresizingMask = [.width, .height]
         tabView.delegate = self
 
@@ -151,17 +150,18 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         addTab("Install from URL", view: buildURLTab())
         tabView.selectTabViewItem(at: 0)
 
-        // Description / status panel (below tabs)
-        descriptionLabel = NSTextField(wrappingLabelWithString: "")
-        descriptionLabel.frame = NSRect(x: 16, y: 8, width: 688, height: 36)
+        // Description / status panel (pinned to bottom, strictly below tabView)
+        descriptionLabel = NSTextField(labelWithString: "")
+        descriptionLabel.frame = NSRect(x: 16, y: 8, width: 708, height: 20)
         descriptionLabel.font = NSFont.systemFont(ofSize: 11)
         descriptionLabel.textColor = .secondaryLabelColor
+        descriptionLabel.lineBreakMode = .byTruncatingTail
         descriptionLabel.isHidden = true
-        descriptionLabel.autoresizingMask = [.width, .minYMargin]
+        descriptionLabel.autoresizingMask = [.width, .maxYMargin]
 
-        // Footer
-        progressBar = NSProgressIndicator(frame: NSRect(x: 16, y: 92, width: 592, height: 14))
-        progressBar.autoresizingMask = [.width, .minYMargin]
+        // Footer download controls (pinned to bottom)
+        progressBar = NSProgressIndicator(frame: NSRect(x: 16, y: 86, width: 612, height: 14))
+        progressBar.autoresizingMask = [.width, .maxYMargin]
         progressBar.isIndeterminate = false
         progressBar.minValue = 0
         progressBar.maxValue = 1
@@ -169,14 +169,14 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         progressBar.isHidden = true
 
         progressLabel = NSTextField(labelWithString: "")
-        progressLabel.frame = NSRect(x: 16, y: 70, width: 592, height: 18)
+        progressLabel.frame = NSRect(x: 16, y: 64, width: 612, height: 18)
         progressLabel.font = NSFont.systemFont(ofSize: 11)
         progressLabel.textColor = .secondaryLabelColor
-        progressLabel.autoresizingMask = [.width, .minYMargin]
+        progressLabel.autoresizingMask = [.width, .maxYMargin]
         progressLabel.isHidden = true
 
-        let logScroll = NSScrollView(frame: NSRect(x: 16, y: 16, width: 592, height: 42))
-        logScroll.autoresizingMask = [.width, .minYMargin]
+        let logScroll = NSScrollView(frame: NSRect(x: 16, y: 12, width: 612, height: 46))
+        logScroll.autoresizingMask = [.width, .maxYMargin]
         logScroll.hasVerticalScroller = true
         logScroll.borderType = .bezelBorder
         logScroll.isHidden = true
@@ -195,13 +195,14 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
 
         cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancelDownload))
         cancelButton.bezelStyle = .rounded
-        cancelButton.frame = NSRect(x: 624, y: 24, width: 80, height: 24)
-        cancelButton.autoresizingMask = [.minXMargin, .minYMargin]
+        cancelButton.frame = NSRect(x: 644, y: 20, width: 80, height: 24)
+        cancelButton.autoresizingMask = [.minXMargin, .maxYMargin]
         cancelButton.isHidden = true
 
         closeButton = NSButton(title: "Close", target: self, action: #selector(closeWindow))
         closeButton.bezelStyle = .rounded
-        closeButton.frame = NSRect(x: 624, y: 24, width: 80, height: 24)
+        closeButton.frame = NSRect(x: 644, y: 20, width: 80, height: 24)
+        closeButton.autoresizingMask = [.minXMargin, .maxYMargin]
         closeButton.isHidden = true
 
         content.addSubview(headerLabel)
@@ -239,31 +240,36 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
     // MARK: Browse tab
 
     private func buildBrowseTab() -> NSView {
-        let v = NSView(frame: NSRect(x: 0, y: 0, width: 688, height: 320))
-        // Top toolbar: popup on left, search field on right
-        let modePopup = NSPopUpButton(frame: NSRect(x: 16, y: 244, width: 200, height: 24))
+        let v = NSView(frame: NSRect(x: 0, y: 0, width: 708, height: 380))
+        v.autoresizingMask = [.width, .height]
+
+        // Top toolbar: popup on left, search field on right (pinned to top)
+        let modePopup = NSPopUpButton(frame: NSRect(x: 16, y: 342, width: 200, height: 24))
         modePopup.addItems(withTitles: ["Shortlist", "Search Hugging Face"])
         modePopup.target = self
         modePopup.action = #selector(browseModeChanged(_:))
+        modePopup.autoresizingMask = [.minYMargin]
         v.addSubview(modePopup)
 
-        searchField = NSSearchField(frame: NSRect(x: 232, y: 244, width: 440, height: 24))
+        searchField = NSSearchField(frame: NSRect(x: 232, y: 342, width: 460, height: 24))
         searchField.placeholderString = "Search GGUF models on Hugging Face"
         searchField.target = self
         searchField.action = #selector(performSearch)
+        searchField.autoresizingMask = [.width, .minYMargin]
         searchField.isHidden = true
         v.addSubview(searchField)
 
         // Search status (only shown in search mode)
         searchStatus = NSTextField(labelWithString: "Type a query and press Return.")
-        searchStatus.frame = NSRect(x: 16, y: 222, width: 656, height: 18)
+        searchStatus.frame = NSRect(x: 16, y: 320, width: 676, height: 18)
         searchStatus.font = NSFont.systemFont(ofSize: 11)
         searchStatus.textColor = .secondaryLabelColor
+        searchStatus.autoresizingMask = [.width, .minYMargin]
         searchStatus.isHidden = true
         v.addSubview(searchStatus)
 
-        // Table area (below toolbar)
-        let browseScroll = NSScrollView(frame: NSRect(x: 16, y: 16, width: 656, height: 200))
+        // Table area (below toolbar, fills remaining height)
+        let browseScroll = NSScrollView(frame: NSRect(x: 16, y: 12, width: 676, height: 320))
         browseTable = NSTableView(frame: browseScroll.bounds)
         browseTable.autoresizingMask = [.width, .height]
         browseTable.allowsMultipleSelection = false
@@ -271,15 +277,15 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         browseTable.rowSizeStyle = .small
         let col1 = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name"))
         col1.title = "Model"
-        col1.width = 280
+        col1.width = 260
         browseTable.addTableColumn(col1)
         let col2 = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("size"))
         col2.title = "Size"
-        col2.width = 60
+        col2.width = 70
         browseTable.addTableColumn(col2)
         let col3 = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("desc"))
         col3.title = "Description"
-        col3.width = 290
+        col3.width = 330
         browseTable.addTableColumn(col3)
         browseTable.dataSource = self
         browseTable.delegate = self
@@ -292,7 +298,7 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         browseContainerView = browseScroll
         v.addSubview(browseScroll)
 
-        let searchScroll = NSScrollView(frame: NSRect(x: 16, y: 16, width: 656, height: 200))
+        let searchScroll = NSScrollView(frame: NSRect(x: 16, y: 12, width: 676, height: 320))
         searchTable = NSTableView(frame: searchScroll.bounds)
         searchTable.autoresizingMask = [.width, .height]
         searchTable.allowsMultipleSelection = false
@@ -300,7 +306,7 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         searchTable.rowSizeStyle = .small
         let sc1 = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("id"))
         sc1.title = "Repository"
-        sc1.width = 320
+        sc1.width = 330
         searchTable.addTableColumn(sc1)
         let sc2 = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("dl"))
         sc2.title = "Downloads"
@@ -308,7 +314,7 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         searchTable.addTableColumn(sc2)
         let sc3 = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("mod"))
         sc3.title = "Last modified"
-        sc3.width = 220
+        sc3.width = 240
         searchTable.addTableColumn(sc3)
         searchTable.dataSource = self
         searchTable.delegate = self
@@ -369,15 +375,29 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
     // MARK: Installed tab
 
     private func buildInstalledTab() -> NSView {
-        let v = NSView(frame: NSRect(x: 0, y: 0, width: 688, height: 320))
+        let v = NSView(frame: NSRect(x: 0, y: 0, width: 708, height: 380))
+        v.autoresizingMask = [.width, .height]
 
         installedStatus = NSTextField(labelWithString: "")
-        installedStatus.frame = NSRect(x: 16, y: 248, width: 656, height: 18)
+        installedStatus.frame = NSRect(x: 16, y: 342, width: 460, height: 22)
         installedStatus.font = NSFont.systemFont(ofSize: 11)
         installedStatus.textColor = .secondaryLabelColor
+        installedStatus.autoresizingMask = [.width, .minYMargin]
         v.addSubview(installedStatus)
 
-        installedTable = NSTableView(frame: NSRect(x: 16, y: 16, width: 656, height: 220))
+        let makeActive = NSButton(title: "Make Active", target: self, action: #selector(makeActiveClicked))
+        makeActive.bezelStyle = .rounded
+        makeActive.frame = NSRect(x: 494, y: 342, width: 100, height: 24)
+        makeActive.autoresizingMask = [.minXMargin, .minYMargin]
+        let deleteBtn = NSButton(title: "Delete…", target: self, action: #selector(deleteClicked))
+        deleteBtn.bezelStyle = .rounded
+        deleteBtn.frame = NSRect(x: 602, y: 342, width: 90, height: 24)
+        deleteBtn.autoresizingMask = [.minXMargin, .minYMargin]
+        v.addSubview(makeActive)
+        v.addSubview(deleteBtn)
+
+        let scroll = NSScrollView(frame: NSRect(x: 16, y: 12, width: 676, height: 320))
+        installedTable = NSTableView(frame: scroll.bounds)
         installedTable.autoresizingMask = [.width, .height]
         installedTable.allowsMultipleSelection = false
         installedTable.allowsEmptySelection = true
@@ -400,22 +420,11 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         installedTable.target = self
         installedTable.doubleAction = #selector(installedRowDoubleClicked)
 
-        let scroll = NSScrollView(frame: NSRect(x: 16, y: 16, width: 656, height: 220))
         scroll.documentView = installedTable
         scroll.hasVerticalScroller = true
         scroll.autoresizingMask = [.width, .height]
         v.addSubview(scroll)
 
-        let makeActive = NSButton(title: "Make Active", target: self, action: #selector(makeActiveClicked))
-        makeActive.bezelStyle = .rounded
-        makeActive.frame = NSRect(x: 480, y: 246, width: 90, height: 22)
-        makeActive.autoresizingMask = [.minXMargin, .minYMargin]
-        let deleteBtn = NSButton(title: "Delete…", target: self, action: #selector(deleteClicked))
-        deleteBtn.bezelStyle = .rounded
-        deleteBtn.frame = NSRect(x: 580, y: 246, width: 90, height: 22)
-        deleteBtn.autoresizingMask = [.minXMargin, .minYMargin]
-        v.addSubview(makeActive)
-        v.addSubview(deleteBtn)
         return v
     }
 
@@ -468,29 +477,35 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
     // MARK: URL tab
 
     private func buildURLTab() -> NSView {
-        let v = NSView(frame: NSRect(x: 0, y: 0, width: 688, height: 320))
+        let v = NSView(frame: NSRect(x: 0, y: 0, width: 708, height: 380))
+        v.autoresizingMask = [.width, .height]
+
         let help = NSTextField(labelWithString: "Paste a Hugging Face URL or repo id. Examples:")
-        help.frame = NSRect(x: 16, y: 248, width: 656, height: 18)
+        help.frame = NSRect(x: 16, y: 342, width: 676, height: 18)
         help.font = NSFont.systemFont(ofSize: 11)
         help.textColor = .secondaryLabelColor
+        help.autoresizingMask = [.width, .minYMargin]
         v.addSubview(help)
 
-        urlField = NSTextField(frame: NSRect(x: 16, y: 218, width: 568, height: 22))
+        urlField = NSTextField(frame: NSRect(x: 16, y: 312, width: 588, height: 24))
         urlField.placeholderString = "https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF"
+        urlField.autoresizingMask = [.width, .minYMargin]
         v.addSubview(urlField)
 
         let fetchBtn = NSButton(title: "Fetch", target: self, action: #selector(fetchFromURL))
         fetchBtn.bezelStyle = .rounded
-        fetchBtn.frame = NSRect(x: 592, y: 217, width: 80, height: 24)
+        fetchBtn.frame = NSRect(x: 612, y: 311, width: 80, height: 26)
+        fetchBtn.autoresizingMask = [.minXMargin, .minYMargin]
         v.addSubview(fetchBtn)
 
         urlStatus = NSTextField(labelWithString: "")
-        urlStatus.frame = NSRect(x: 16, y: 16, width: 656, height: 180)
+        urlStatus.frame = NSRect(x: 16, y: 12, width: 676, height: 288)
         urlStatus.font = NSFont.systemFont(ofSize: 11)
         urlStatus.textColor = .secondaryLabelColor
         urlStatus.isEditable = false
         urlStatus.usesSingleLineMode = false
         urlStatus.maximumNumberOfLines = 0
+        urlStatus.autoresizingMask = [.width, .height]
         v.addSubview(urlStatus)
         return v
     }
@@ -739,11 +754,36 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
     }
 
     private func adjustLayout() {
+        guard let w = window, let content = w.contentView else { return }
+        let bounds = content.bounds
+        let headerH: CGFloat = 34
+        let topY = bounds.height - headerH
+
+        headerLabel.frame = NSRect(x: 16, y: topY, width: bounds.width - 32, height: 20)
+
         if isDownloading || !closeButton.isHidden {
-            tabView.frame = NSRect(x: 16, y: 114, width: 688, height: 236)
+            descriptionLabel.isHidden = true
+            let footerH: CGFloat = 114
+            tabView.frame = NSRect(
+                x: 16,
+                y: footerH,
+                width: bounds.width - 32,
+                height: max(160, bounds.height - footerH - headerH - 8)
+            )
         } else {
-            tabView.frame = NSRect(x: 16, y: 20, width: 688, height: 330)
+            let footerH: CGFloat = 34
+            tabView.frame = NSRect(
+                x: 16,
+                y: footerH,
+                width: bounds.width - 32,
+                height: max(200, bounds.height - footerH - headerH - 8)
+            )
+            descriptionLabel.frame = NSRect(x: 16, y: 8, width: bounds.width - 32, height: 20)
         }
+    }
+
+    func windowDidResize(_ notification: Notification) {
+        adjustLayout()
     }
 
     // MARK: Helpers
