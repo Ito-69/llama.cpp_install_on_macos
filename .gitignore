@@ -20,3 +20,7 @@ llama-b*/
 ._*
 .Spotlight-V100
 .Trashes
+
+# Internal maintainer docs (not published to GitHub)
+MAINTAINER_RELEASE.md
+*.internal.md

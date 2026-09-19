@@ -315,28 +315,9 @@ final class InstallManager: NSObject {
         let append: (String) -> Void = { s in DispatchQueue.main.async { controller.appendText(s) } }
 
         DispatchQueue.global(qos: .userInitiated).async {
-            append("Installing…\n")
-            append("Preparing dependencies…\n")
+            append("Installing llama.cpp…\n")
 
-            // Ensure huggingface_hub is available and up to date
-            let (pipCode, _) = runProcess(
-                executable: "/usr/bin/pip3",
-                arguments: ["install", "-U", "huggingface_hub", "--user", "--quiet", "-q"],
-                outputCallback: nil
-            )
-
-            if pipCode != 0 {
-                append("\n⚠️  Failed to install required Python package.\n")
-                DispatchQueue.main.async {
-                    controller.finish(exitCode: pipCode, applyEnabled: false) { _ in
-                        self.activeControllers.removeAll { $0 === controller }
-                        completion(false)
-                    }
-                }
-                return
-            }
-
-            // Run main install script
+            // Run main install script with LaunchAgent setup
             let scriptDir = URL(fileURLWithPath: INSTALL_SCRIPT_PATH).deletingLastPathComponent().path
 
             // Run main install script with LaunchAgent setup

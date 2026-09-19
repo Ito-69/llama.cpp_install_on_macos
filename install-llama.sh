@@ -85,7 +85,7 @@ SKIP_GITHUB_CHECK=0
 MODE_CHOOSE_MODEL=0
 MODE_LIST_MODELS=0
 GITHUB_REPO="ggml-org/llama.cpp"
-GITHUB_API="https://api.github.com/repos/ggml-org/llama.cpp/releases/latest"
+GITHUB_API="https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=30"
 SKIP_DOWNLOAD=0
 SKIP_SERVER=0
 INSTALL_AGENT=0
@@ -222,23 +222,18 @@ detect_shell_rc_files() {
   info "Shell: ${shell_path:-?} (${shell_name}) → ${SHELL_RCS[*]:-(no RC file)}"
 }
 
-# ── huggingface-cli discovery ─────────────────────────────────────────────────
+# ── Optional huggingface-cli discovery (fallback only) ─────────────────────────
 find_hf_cli() {
-  local candidate python_user_base
-  python_user_base="$(python3 -m site --user-base 2>/dev/null || true)"
+  local candidate
   for candidate in \
     "$(command -v hf 2>/dev/null || true)" \
     "$(command -v huggingface-cli 2>/dev/null || true)" \
-    "${python_user_base}/bin/hf" \
-    "${python_user_base}/bin/huggingface-cli" \
-    "${HOME}/conda/envs/exo/bin/hf" \
+    "${HOME}/.local/bin/hf" \
+    "${HOME}/.local/bin/huggingface-cli" \
     "${HOME}/miniconda3/bin/hf" \
     "${HOME}/anaconda3/bin/hf" \
     "/opt/homebrew/bin/hf" \
     "/usr/local/bin/hf" \
-    "${HOME}/conda/envs/exo/bin/huggingface-cli" \
-    "${HOME}/miniconda3/bin/huggingface-cli" \
-    "${HOME}/anaconda3/bin/huggingface-cli" \
     "/opt/homebrew/bin/huggingface-cli" \
     "/usr/local/bin/huggingface-cli"
   do
@@ -309,8 +304,13 @@ apply_model_preset() {
       MODEL_REPO="bartowski/Qwen2.5-32B-Instruct-GGUF"
       MODEL_FILE="Qwen2.5-32B-Instruct-Q4_K_M.gguf"
       ;;
+    5|qwen38)
+      MODEL_LABEL="Qwen3.8 27B Q4_K_M (~19 GB)"
+      MODEL_REPO="ggml-org/Qwen3.8-27B-GGUF"
+      MODEL_FILE="Qwen3.8-27B-Q4_K_M.gguf"
+      ;;
     *)
-      die "Unknown preset: $1. Use: qwen14 | qwen7 | llama8 | qwen32  (or --list-models)"
+      die "Unknown preset: $1. Use: qwen14 | qwen7 | llama8 | qwen32 | qwen38  (or --list-models)"
       ;;
   esac
   sync_model_path
@@ -324,10 +324,12 @@ list_models_catalog() {
   echo "  qwen14  (1)  Qwen2.5 14B Q4_K_M   ~8.4 GB  — balanced (recommended)"
   echo "  qwen7   (2)  Qwen2.5 7B Q4_K_M    ~4.7 GB  — faster"
   echo "  llama8  (3)  Llama 3.1 8B Q4_K_M  ~5 GB    — fast"
-  echo "  qwen32  (4)  Qwen2.5 32B Q4_K_M   ~19 GB   — best quality (24 GB RAM)"
+  echo "  qwen32  (4)  Qwen2.5 32B Q4_K_M   ~19 GB   — strong 32B (24 GB RAM)"
+  echo "  qwen38  (5)  Qwen3.8 27B Q4_K_M   ~19 GB   — latest Qwen 3.8 (24 GB RAM)"
   echo ""
   echo "Examples:"
   echo "  ./install-llama.sh --model qwen7"
+  echo "  ./install-llama.sh --model qwen38"
   echo "  ./install-llama.sh --choose-model"
   echo ""
 }
@@ -338,7 +340,7 @@ choose_model_interactive() {
   if [[ ! -t 0 ]]; then
     die "Interactive selection requires a TTY. Use: --model qwen14"
   fi
-  read -r -p "Choose [1-4] or preset name (qwen14): " choice
+  read -r -p "Choose [1-5] or preset name (qwen14): " choice
   choice="${choice:-1}"
   apply_model_preset "$choice"
   save_config
@@ -360,8 +362,7 @@ if [[ "$MODE_LIST_MODELS" -eq 1 ]]; then
 fi
 
 if [[ "$SKIP_DOWNLOAD" -eq 0 && "$RUN_MAIN" -eq 1 ]]; then
-  HF_CLI="$(find_hf_cli || true)"
-  [[ -n "$HF_CLI" ]] || die "hf / huggingface-cli not found. Install: pip3 install huggingface_hub"
+  HF_CLI="$(find_hf_cli 2>/dev/null || true)"
 fi
 
 # ── Finding / extracting the llama bundle ──────────────────────────────────────
@@ -425,12 +426,33 @@ get_installed_build_number() {
 
 # ── GitHub — check and download new releases ───────────────────────────────────
 github_fetch_latest_tag() {
-  local json tag
+  local json tag arch asset_suffix
+  arch="$(get_system_arch)"
+  case "$arch" in
+    arm64)  asset_suffix="bin-macos-arm64.tar.gz" ;;
+    x86_64) asset_suffix="bin-macos-x64.tar.gz" ;;
+    *)      return 1 ;;
+  esac
   json="$(curl -fsSL --connect-timeout 8 --max-time 25 \
     -H "Accept: application/vnd.github+json" \
     "${GITHUB_API}" 2>/dev/null)" || return 1
-  tag="$(echo "$json" | grep -m1 '"tag_name"' \
-    | sed -E 's/.*"tag_name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
+  tag="$(echo "$json" | python3 -c "
+import json, sys
+releases = json.load(sys.stdin)
+for r in releases:
+    if not isinstance(r, dict):
+        continue
+    assets = r.get('assets', [])
+    for a in assets:
+        name = a.get('name', '')
+        if '${asset_suffix}' in name:
+            print(r['tag_name'])
+            sys.exit(0)
+sys.exit(1)
+" 2>/dev/null || echo "$json" | awk -v suffix="${asset_suffix}" '
+  /"tag_name"/ { gsub(/.*"tag_name"[[:space:]]*:[[:space:]]*"/, ""); gsub(/".*/, ""); tag=$0 }
+  /"name"/ && index($0, suffix) { if (tag != "") { print tag; exit } }
+' 2>/dev/null)" || return 1
   [[ -n "$tag" ]] && echo "$tag"
 }
 
@@ -818,29 +840,60 @@ download_model() {
     return 0
   fi
 
-  # Remove broken symlinks
-  if [[ -L "$MODEL_PATH" ]] || [[ ! -f "$MODEL_PATH" ]]; then
+  # Remove broken symlinks or empty target
+  if [[ -L "$MODEL_PATH" ]]; then
     rm -f "$MODEL_PATH"
   fi
 
   info "Downloading model: ${MODEL_REPO} / ${MODEL_FILE}"
-  warn "This is ~8+ GB — may take a while…"
+  info "Target: ${MODEL_PATH}"
+  warn "This is a large file (~${MODEL_LABEL##*~}) — may take several minutes…"
 
-  local hf_cli_name
-  hf_cli_name="$(basename "$HF_CLI")"
-  if [[ "$hf_cli_name" == "hf" ]]; then
-    "$HF_CLI" download "$MODEL_REPO" "$MODEL_FILE" \
-      --local-dir "$MODELS_DIR"
+  mkdir -p "$MODELS_DIR"
+
+  local url="https://huggingface.co/${MODEL_REPO}/resolve/main/${MODEL_FILE}"
+  local temp_file="${MODEL_PATH}.download"
+
+  local auth_header=()
+  if [[ -n "${HF_TOKEN:-}" ]]; then
+    auth_header=(-H "Authorization: Bearer ${HF_TOKEN}")
+  elif [[ -f "${HOME}/.cache/huggingface/token" ]]; then
+    local token
+    token="$(cat "${HOME}/.cache/huggingface/token" 2>/dev/null | tr -d '[:space:]')"
+    [[ -n "$token" ]] && auth_header=(-H "Authorization: Bearer ${token}")
+  fi
+
+  # Download using curl with resume support (-C -)
+  if curl -fL \
+    --retry 5 \
+    --retry-delay 2 \
+    -C - \
+    "${auth_header[@]}" \
+    --progress-bar \
+    -o "$temp_file" \
+    "$url"; then
+    mv "$temp_file" "$MODEL_PATH"
   else
-    "$HF_CLI" download "$MODEL_REPO" "$MODEL_FILE" \
-      --local-dir "$MODELS_DIR" \
-      --local-dir-use-symlinks False
+    # Fallback to hf / huggingface-cli if present
+    local hf_bin
+    hf_bin="$(find_hf_cli 2>/dev/null || true)"
+    if [[ -n "$hf_bin" && -x "$hf_bin" ]]; then
+      warn "curl download interrupted; attempting fallback with $(basename "$hf_bin")…"
+      "$hf_bin" download "$MODEL_REPO" "$MODEL_FILE" \
+        --local-dir "$MODELS_DIR" \
+        --local-dir-use-symlinks False || true
+    fi
   fi
 
   if model_is_valid; then
-    ok "Model downloaded: ${MODEL_PATH}"
+    ok "Model ready: ${MODEL_PATH} ($(du -h "$MODEL_PATH" | cut -f1))"
+    return 0
   else
-    die "Download failed — file missing or too small: ${MODEL_PATH}"
+    warn "Download incomplete or interrupted."
+    info "You can resume downloading anytime by running:"
+    echo "  ./install-llama.sh --model ${MODEL_PRESET:-qwen7}"
+    echo "Or download models directly inside LlamaMate → Models…"
+    return 1
   fi
 }
 
@@ -1047,16 +1100,9 @@ SCRIPT
   ok "Start script: ${START_SCRIPT}"
 }
 
-install_launch_agent() {
-  if ! [[ -x "${LOCAL_BIN}/llama-server" ]]; then
-    die "Please install llama.cpp first (without --install-only)."
-  fi
-  model_is_valid || die "No valid model. Download one with: ./install-llama.sh --model qwen14"
-
+write_launch_agent_files() {
   save_config
   write_start_script
-  stop_llama_server
-
   mkdir -p "${HOME}/Library/LaunchAgents" "${HOME}/Library/Logs"
 
   cat > "$LAUNCH_AGENT_PLIST" <<PLIST
@@ -1088,13 +1134,28 @@ install_launch_agent() {
 </dict>
 </plist>
 PLIST
+  ok "LaunchAgent configuration ready: ${LAUNCH_AGENT_PLIST}"
+}
 
+bootstrap_launch_agent() {
+  if ! [[ -x "${LOCAL_BIN}/llama-server" ]]; then
+    die "Please install llama.cpp first (without --install-only)."
+  fi
+
+  if ! model_is_valid; then
+    warn "LaunchAgent configured but not started yet (no valid model in ${MODELS_DIR})."
+    info "Once a model is downloaded, start the server from LlamaMate menu or run:"
+    echo "  ./install-llama.sh --install-agent"
+    return 0
+  fi
+
+  stop_llama_server
   launchctl bootout "gui/$(id -u)" "$LAUNCH_AGENT_PLIST" 2>/dev/null || true
   launchctl bootstrap "gui/$(id -u)" "$LAUNCH_AGENT_PLIST"
   launchctl enable "gui/$(id -u)/${LAUNCH_AGENT_LABEL}" 2>/dev/null || true
   sleep 2
 
-  ok "LaunchAgent installed"
+  ok "LaunchAgent installed and running"
   info "Logs: ${LOG_OUT}"
 
   if server_is_running; then
@@ -1103,6 +1164,11 @@ PLIST
   else
     warn "Server didn't start. Check: tail -50 ${LOG_ERR}"
   fi
+}
+
+install_launch_agent() {
+  write_launch_agent_files
+  bootstrap_launch_agent
 }
 
 uninstall_launch_agent() {
@@ -1209,16 +1275,17 @@ main() {
   fix_gatekeeper
   configure_shell
   verify_install
+  save_config
+  write_start_script
 
-  if [[ -f "$LAUNCH_AGENT_PLIST" ]]; then
-    write_start_script
-    info "LaunchAgent: restored llama-server-start.sh"
+  if [[ "$INSTALL_AGENT" -eq 1 ]]; then
+    write_launch_agent_files
   fi
 
   new_ver="$(get_llama_version_string "${LOCAL_BIN}/llama-server")"
 
   if [[ "$SKIP_DOWNLOAD" -eq 0 ]]; then
-    download_model
+    download_model || true
   else
     if [[ "$MODE_UPDATE" -eq 1 ]]; then
       info "Update: model stays untouched (still in ${MODELS_DIR})"
@@ -1247,7 +1314,7 @@ main() {
   print_uninstall_info
 
   if [[ "$INSTALL_AGENT" -eq 1 ]]; then
-    install_launch_agent
+    bootstrap_launch_agent
     return 0
   fi
 
@@ -1255,7 +1322,8 @@ main() {
     if model_is_valid; then
       start_server
     else
-      die "No valid model. Run: ./install-llama.sh --model qwen7"
+      info "Server not started: model is missing or download was skipped."
+      info "To start, download a model or run: ./install-llama.sh --model qwen7"
     fi
   else
     info "Start manually:"

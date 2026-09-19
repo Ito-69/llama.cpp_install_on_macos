@@ -26,7 +26,7 @@ process into a single `.app` so you never think about it again.
 - **Self-contained** — `install-llama.sh` is bundled inside the `.app`; no separate script
 - **Automatic architecture detection** — universal binary (arm64 + x86_64)
 - **Menu bar control** — start / stop / restart, status icon (green = running)
-- **Model downloads** — built-in presets (Qwen2.5 7B, 14B, Llama 3.1 8B, Qwen2.5 32B) via Hugging Face
+- **Model downloads** — built-in presets (Qwen2.5 7B, 14B, Llama 3.1 8B, Qwen3.8 27B) via Hugging Face
 - **Auto-start at login** — optional LaunchAgent for background server operation
 - **App auto-update** — checks GitHub releases; one-click download
 - **llama.cpp update** — check / apply from inside the app
@@ -129,7 +129,7 @@ Paste any of these and click **Fetch**:
 ### Tips
 
 - Without a Hugging Face token, downloads are rate-limited. The app prompts for one on first install. You can add a token later from the welcome dialog.
-- The download uses `huggingface_hub` (Python) which supports resumable downloads.
+- Downloads are handled natively (URLSession in the app, curl in the script) with resume and Hugging Face token support.
 - All downloaded models land in `~/models/`. Delete them anytime from the Installed tab.
 
 ## Server Settings
@@ -180,28 +180,6 @@ Build outputs:
 - `LlamaMate.app` — universal binary (arm64 + x86_64), ad-hoc codesigned
 - macOS 13+ required
 
-## Release Process
-
-Releases are automated via a single workflow:
-
-```bash
-# 1. Bump VERSION in llamamate/build.sh
-# 2. Build the DMG and publish
-bash release.sh 2.3.3
-gh release create v2.3.3 --target main "release-out/LlamaMate-2.3.3.dmg"
-```
-
-The `.github/workflows/update-homebrew-tap.yml` workflow fires on release publish:
-1. Downloads the DMG and computes its SHA256
-2. Updates `Casks/llamamate.rb` in `Ito-69/homebrew-llamamate`
-3. Opens a PR with the change
-
-**Setup required (one time):** create a [GitHub Personal Access Token](https://github.com/settings/tokens?type=beta) with **Repository: Read & Write** access to `homebrew-llamamate` for:
-- `Contents` (to push the updated cask file)
-- `Pull requests` (to open the version-bump PR)
-
-Add it as the `TAP_REPO_TOKEN` secret in this repository's **Settings → Secrets and variables → Actions**.
-
 ## Files & Directories
 
 | Path | Purpose |
@@ -228,10 +206,9 @@ The app removes itself from `/Applications` after quitting.
 ## Requirements
 
 - macOS 13+ (Ventura or newer)
-- Xcode Command Line Tools: `xcode-select --install`
 - Internet connection (for initial download + model fetch)
 
-The app installs its own `huggingface_hub` Python package on first run.
+No Python or external packages required — works out of the box on a clean Mac.
 
 ## License
 
