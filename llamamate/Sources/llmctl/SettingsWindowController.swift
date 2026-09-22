@@ -22,6 +22,18 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var usageTimer: Timer?
     private var lastSelfCpuTime: Double = 0
     private var lastSelfSampleTime: TimeInterval = 0
+    private var previousContextValue = "8192"
+
+    static let standardContextValues = [
+        "2048",
+        "4096",
+        "8192",
+        "16384",
+        "32768",
+        "65536",
+        "131072",
+        "262144"
+    ]
 
     private override init() { super.init() }
 
@@ -101,8 +113,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         // ── Context row ──
         addLabel("Context:", x: 16, y: y - 2, width: 110, to: content)
         contextPopup = NSPopUpButton(frame: NSRect(x: 130, y: y, width: 150, height: 24))
-        let ctxValues = ["2048", "4096", "8192", "16384", "32768"]
-        contextPopup.addItems(withTitles: ctxValues)
+        contextPopup.addItems(withTitles: SettingsWindowController.standardContextValues)
+        contextPopup.menu?.addItem(NSMenuItem.separator())
+        contextPopup.addItem(withTitle: "Custom…")
+        contextPopup.target = self
+        contextPopup.action = #selector(contextChanged(_:))
         contextPopup.toolTip = "Maximum number of tokens the model can keep in memory. Larger context uses more RAM."
         content.addSubview(contextPopup)
         addHint("tokens", x: 290, y: y, to: content)
@@ -120,6 +135,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         addLabel("KV cache:", x: 16, y: y - 2, width: 110, to: content)
         cachePopup = NSPopUpButton(frame: NSRect(x: 130, y: y, width: 150, height: 24))
         cachePopup.addItems(withTitles: ["f16", "q8_0", "q4_0"])
+        cachePopup.target = self
+        cachePopup.action = #selector(cacheChanged(_:))
         cachePopup.toolTip = "Quantization of the key/value cache. Lower precision = less RAM, but may reduce quality."
         content.addSubview(cachePopup)
         addHint("quant type (saves RAM)", x: 290, y: y, to: content)
@@ -239,6 +256,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
         if let idx = contextPopup.itemTitles.firstIndex(of: sm.context) {
             contextPopup.selectItem(at: idx)
+            previousContextValue = sm.context
+        } else if !sm.context.isEmpty {
+            let customIdx = contextPopup.indexOfItem(withTitle: "Custom…")
+            let insertIdx = customIdx > 0 ? customIdx - 1 : max(0, contextPopup.numberOfItems - 2)
+            contextPopup.insertItem(withTitle: sm.context, at: insertIdx)
+            contextPopup.selectItem(withTitle: sm.context)
+            previousContextValue = sm.context
         }
 
         faCheckbox.state = (sm.fa == "1") ? .on : .off
@@ -269,7 +293,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         cachePopup.titleOfSelectedItem ?? "f16"
     }
 
-    // MARK: Profile presets
+    private func currentContext() -> String {
+        guard let title = contextPopup.titleOfSelectedItem, title != "Custom…" else {
+            return previousContextValue
+        }
+        return title
+    }
+
+    // MARK: Profile presets & controls
 
     @objc private func profileChanged(_ sender: NSPopUpButton) {
         let profile = ["fast", "balanced", "accurate"][sender.indexOfSelectedItem]
@@ -288,6 +319,50 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         // nothing extra
     }
 
+    @objc private func contextChanged(_ sender: NSPopUpButton) {
+        if sender.titleOfSelectedItem == "Custom…" {
+            promptCustomContext()
+        } else if let title = sender.titleOfSelectedItem {
+            previousContextValue = title
+        }
+        updateRamEstimate()
+    }
+
+    @objc private func cacheChanged(_ sender: NSPopUpButton) {
+        updateRamEstimate()
+    }
+
+    private func promptCustomContext() {
+        let alert = NSAlert()
+        alert.messageText = "Custom Context Size"
+        alert.informativeText = "Enter context length in tokens (e.g. 65536, 131072, 262144):"
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
+        input.placeholderString = "e.g. 262144"
+        input.stringValue = previousContextValue
+        alert.accessoryView = input
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = input
+
+        if alert.runModal() == .alertFirstButtonReturn {
+            let trimmed = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let num = Int(trimmed), num >= 512 {
+                let strVal = String(num)
+                if !contextPopup.itemTitles.contains(strVal) {
+                    let customIdx = contextPopup.indexOfItem(withTitle: "Custom…")
+                    let insertIdx = customIdx > 0 ? customIdx - 1 : max(0, contextPopup.numberOfItems - 2)
+                    contextPopup.insertItem(withTitle: strVal, at: insertIdx)
+                }
+                contextPopup.selectItem(withTitle: strVal)
+                previousContextValue = strVal
+                updateRamEstimate()
+                return
+            }
+        }
+        contextPopup.selectItem(withTitle: previousContextValue)
+        updateRamEstimate()
+    }
+
     // MARK: RAM estimate
 
     private func updateRamEstimate() {
@@ -295,10 +370,17 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let modelSize = (try? FileManager.default.attributesOfItem(atPath: sm.modelPath)[.size] as? Int64) ?? 0
         let totalRAM = ProcessInfo.processInfo.physicalMemory
         let modelGB = Double(modelSize) / 1_000_000_000.0
-        // Rough KV cache: ~30% of model size at 8192, scaling with context
-        let ctxVal = Int(sm.context) ?? 8192
+        // Rough KV cache: ~30% of model size at 8192, scaling with context and KV quantization
+        let ctxVal = Int(currentContext()) ?? 8192
         let ctxFactor = Double(ctxVal) / 8192.0
-        let ctxGB = modelGB * 0.3 * ctxFactor
+        let cacheType = currentCtk()
+        let cacheFactor: Double
+        switch cacheType {
+        case "q4_0": cacheFactor = 0.25
+        case "q8_0": cacheFactor = 0.5
+        default:     cacheFactor = 1.0
+        }
+        let ctxGB = modelGB * 0.3 * ctxFactor * cacheFactor
         let neededGB = modelGB + ctxGB
         let availGB = Double(totalRAM) / 1_000_000_000.0
 
@@ -331,7 +413,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                 ctv: currentCtk(),
                 threads: threadsField.stringValue.isEmpty ? "0" : threadsField.stringValue,
                 batchSize: batchField.stringValue.isEmpty ? "512" : batchField.stringValue,
-                context: contextPopup.titleOfSelectedItem ?? "8192",
+                context: currentContext(),
                 port: portField.stringValue.isEmpty ? "8080" : portField.stringValue,
                 profile: currentProfile()
             )

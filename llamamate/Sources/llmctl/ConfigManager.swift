@@ -119,7 +119,14 @@ final class ConfigManager {
 
         TOTAL_RAM=$(sysctl -n hw.memsize 2>/dev/null || echo 0)
         MODEL_SIZE=$(stat -f%z "${MODEL_PATH:-/dev/null}" 2>/dev/null || echo 0)
-        CTX_RAM=$(( MODEL_SIZE / 3 ))
+        CTX_VAL="${CONTEXT:-8192}"
+        CTX_FACTOR=$(( CTX_VAL / 8192 ))
+        [ "$CTX_FACTOR" -lt 1 ] && CTX_FACTOR=1
+        case "${CTK:-f16}" in
+          q4_0) CTX_RAM=$(( (MODEL_SIZE / 12) * CTX_FACTOR )) ;;
+          q8_0) CTX_RAM=$(( (MODEL_SIZE / 6) * CTX_FACTOR )) ;;
+          *)    CTX_RAM=$(( (MODEL_SIZE / 3) * CTX_FACTOR )) ;;
+        esac
         NEEDED=$(( MODEL_SIZE + CTX_RAM ))
         if [ "$TOTAL_RAM" -gt 0 ] && [ "$NEEDED" -gt "$TOTAL_RAM" ]; then
           NEEDED_GB=$(( NEEDED / 1073741824 ))

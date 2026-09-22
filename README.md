@@ -167,7 +167,7 @@ Three presets that set GPU layers, flash attention, and KV cache quantization to
 | Control | What it does |
 |---------|-------------|
 | **GPU layers** | Number of layers offloaded to GPU (0–99). On Apple Silicon, Metal acceleration makes this the single biggest speedup — always set to 99. |
-| **Context** | Context size in tokens (2048–32768). Larger = more memory, better for long conversations. |
+| **Context** | Context size in tokens (2048–262144+, with Custom… entry support). Larger = more memory, better for long conversations. |
 | **Flash attention** | Faster inference with most models. Always enabled on Apple Silicon Fast/Balanced profiles. |
 | **KV cache type** | Quantization for key/value cache: `f16` (full precision), `q8_0` (8-bit, saves RAM), `q4_0` (4-bit, maximum RAM saving). |
 | **Threads** | CPU threads for prompt processing. `0` = auto. On Apple Silicon, optimal is the number of P-cores (not logical cores). |
