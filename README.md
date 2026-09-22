@@ -47,8 +47,24 @@ brew install --cask llamamate
 **Via DMG (no Homebrew required):**
 1. Download `LlamaMate-2.x.x.dmg` from [GitHub Releases](https://github.com/Ito-69/llama.cpp_install_on_macos/releases)
 2. Open the `.dmg` and drag `LlamaMate.app` to `/Applications`
-3. **Right-click → Open** the first time (because the app is not notarized)
-4. Click **Install** in the welcome dialog
+3. Launch the app and click **Install** in the welcome dialog
+
+> [!NOTE]
+> ### First Launch & macOS Gatekeeper
+> Because LlamaMate is an open-source project without an Apple Developer certificate, macOS Gatekeeper may block it on first run:
+>
+> - **Standard bypass (macOS 13 / 14):**  
+>   **Right-click (or Control-click) → Open**, then click **Open** in the confirmation dialog.
+>
+> - **macOS 15 Sequoia:**  
+>   If right-clicking does not work, open **System Settings → Privacy & Security**, scroll down to the *Security* section, and click **Open Anyway**.
+>
+> - **macOS says the app is "damaged"?**  
+>   It isn't — that is a quarantine flag macOS attaches to files downloaded via a browser. Open **Terminal**, paste the command below, and press Enter:
+>   ```bash
+>   xattr -dr com.apple.quarantine /Applications/LlamaMate.app
+>   ```
+>   Then open the app normally.
 
 The app handles everything: downloads llama.cpp, downloads a model, sets up the LaunchAgent, and starts the server. You'll see a green llama icon in your menu bar when it's running.
 
