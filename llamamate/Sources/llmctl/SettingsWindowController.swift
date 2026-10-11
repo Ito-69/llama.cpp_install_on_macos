@@ -98,15 +98,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         nglSlider.maxValue = 99
         nglSlider.numberOfTickMarks = 100
         nglSlider.allowsTickMarkValuesOnly = false
-        nglSlider.toolTip = "Number of transformer layers offloaded to the GPU. 99 = maximum GPU acceleration. 0 = CPU only."
+        nglSlider.toolTip = "Number of transformer layers offloaded to the GPU. 99 = maximum GPU acceleration (all layers on Metal). 0 = CPU only."
         nglSlider.target = self
         nglSlider.action = #selector(nglChanged(_:))
         content.addSubview(nglSlider)
-        nglLabel = NSTextField(labelWithString: "40")
-        nglLabel.frame = NSRect(x: 400, y: y - 2, width: 40, height: 18)
+        nglLabel = NSTextField(labelWithString: "99")
+        nglLabel.frame = NSRect(x: 395, y: y - 2, width: 85, height: 18)
         nglLabel.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-        nglLabel.alignment = .right
-        nglLabel.toolTip = "Current GPU layers value."
+        nglLabel.alignment = .left
+        nglLabel.toolTip = "Current GPU layers value (99 = all layers on Metal GPU)."
         content.addSubview(nglLabel)
         y -= 34
 
@@ -156,10 +156,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         // ── Batch size row ──
         addLabel("Batch:", x: 16, y: y - 2, width: 110, to: content)
         batchField = NSTextField(frame: NSRect(x: 130, y: y, width: 80, height: 22))
-        batchField.placeholderString = "512"
-        batchField.toolTip = "Number of tokens processed in one batch. 512 is a good default. Larger batches use more memory."
+        batchField.placeholderString = "2048"
+        batchField.toolTip = "Number of tokens processed per logical batch. 2048 is recommended for Apple Silicon Metal."
         content.addSubview(batchField)
-        addHint("tokens per batch", x: 220, y: y, to: content)
+        addHint("tokens (2048 rec. for Metal)", x: 220, y: y, to: content)
         y -= 34
 
         // ── Port row ──
@@ -251,8 +251,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let profileIndex = ["fast", "balanced", "accurate"].firstIndex(of: sm.profile) ?? 1
         profilePopup.selectItem(at: profileIndex)
 
-        nglSlider.doubleValue = Double(sm.ngl) ?? 40
-        nglLabel.stringValue = sm.ngl
+        let nglInt = Int(sm.ngl) ?? 99
+        nglSlider.doubleValue = Double(nglInt)
+        nglLabel.stringValue = nglInt >= 99 ? "99 (All)" : sm.ngl
 
         if let idx = contextPopup.itemTitles.firstIndex(of: sm.context) {
             contextPopup.selectItem(at: idx)
@@ -272,7 +273,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         }
 
         threadsField.stringValue = sm.threads == "0" ? "" : sm.threads
-        batchField.stringValue = sm.batchSize == "512" ? "" : sm.batchSize
+        batchField.stringValue = sm.batchSize == "2048" ? "" : sm.batchSize
         portField.stringValue = sm.port
     }
 
@@ -311,7 +312,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     @objc private func nglChanged(_ sender: NSSlider) {
         let v = Int(sender.doubleValue)
-        nglLabel.stringValue = String(v)
+        nglLabel.stringValue = (v >= 99) ? "99 (All)" : String(v)
         updateRamEstimate()
     }
 
@@ -412,7 +413,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                 ctk: currentCtk(),
                 ctv: currentCtk(),
                 threads: threadsField.stringValue.isEmpty ? "0" : threadsField.stringValue,
-                batchSize: batchField.stringValue.isEmpty ? "512" : batchField.stringValue,
+                batchSize: batchField.stringValue.isEmpty ? "2048" : batchField.stringValue,
+                ubatchSize: "512",
                 context: currentContext(),
                 port: portField.stringValue.isEmpty ? "8080" : portField.stringValue,
                 profile: currentProfile()

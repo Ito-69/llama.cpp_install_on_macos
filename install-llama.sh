@@ -270,12 +270,13 @@ MODEL_PATH="${MODEL_PATH}"
 PORT=${PORT}
 CONTEXT=${CONTEXT}
 HOST="${HOST}"
-NGL=${NGL:-40}
+NGL=${NGL:-99}
 FA=${FA:-1}
 CTK="${CTK:-q8_0}"
 CTV="${CTV:-q8_0}"
 THREADS=${THREADS:-0}
-BATCH_SIZE=${BATCH_SIZE:-512}
+BATCH_SIZE=${BATCH_SIZE:-2048}
+UBATCH_SIZE=${UBATCH_SIZE:-512}
 PROFILE="${PROFILE:-balanced}"
 EOF
 }
@@ -1124,12 +1125,13 @@ exec "${HOME}/.local/bin/llama-server" \
   -c "${CONTEXT}" \
   --port "${PORT}" \
   --host "${HOST}" \
-  -ngl "${NGL:-40}" \
-  -fa "${FA:-0}" \
+  -ngl "${NGL:-99}" \
+  -fa "${FA:-1}" \
   -ctk "${CTK:-f16}" \
   -ctv "${CTV:-f16}" \
   -t "${THREADS:-0}" \
-  -b "${BATCH_SIZE:-512}"
+  -b "${BATCH_SIZE:-2048}" \
+  -ub "${UBATCH_SIZE:-512}"
 SCRIPT
   chmod +x "$START_SCRIPT"
   ok "Start script: ${START_SCRIPT}"

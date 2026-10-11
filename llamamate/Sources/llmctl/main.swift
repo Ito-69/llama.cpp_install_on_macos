@@ -66,12 +66,13 @@ final class ServerManager {
     private(set) var port = "8080"
     private(set) var host = "0.0.0.0"
     private(set) var context = "8192"
-    private(set) var ngl = "40"
+    private(set) var ngl = "99"
     private(set) var fa = "1"
     private(set) var ctk = "q8_0"
     private(set) var ctv = "q8_0"
     private(set) var threads = "0"
-    private(set) var batchSize = "512"
+    private(set) var batchSize = "2048"
+    private(set) var ubatchSize = "512"
     private(set) var profile = "balanced"
 
     var onStatusChange: (() -> Void)?
@@ -98,16 +99,22 @@ final class ServerManager {
             fa = isAS ? "1" : "0"
             ctk = isAS ? "q8_0" : "f16"
             ctv = isAS ? "q8_0" : "f16"
+            batchSize = "2048"
+            ubatchSize = "512"
         case "balanced":
-            ngl = isAS ? "40" : "0"
+            ngl = isAS ? "99" : "0"
             fa = isAS ? "1" : "0"
             ctk = isAS ? "q8_0" : "f16"
             ctv = isAS ? "q8_0" : "f16"
+            batchSize = "2048"
+            ubatchSize = "512"
         case "accurate":
             ngl = isAS ? "99" : "0"
             fa = "0"
             ctk = "f16"
             ctv = "f16"
+            batchSize = "2048"
+            ubatchSize = "512"
         default:
             break
         }
@@ -141,6 +148,7 @@ final class ServerManager {
         ctv = config.ctv
         threads = config.threads
         batchSize = config.batchSize
+        ubatchSize = config.ubatchSize.isEmpty ? "512" : config.ubatchSize
         profile = config.profile
     }
 

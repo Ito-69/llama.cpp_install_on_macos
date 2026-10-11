@@ -74,7 +74,7 @@ final class ModelManager {
 
     // MARK: Save Settings
 
-    func saveSettings(ngl: String, fa: String, ctk: String, ctv: String, threads: String, batchSize: String, context: String, port: String, profile: String) throws {
+    func saveSettings(ngl: String, fa: String, ctk: String, ctv: String, threads: String, batchSize: String, ubatchSize: String = "512", context: String, port: String, profile: String) throws {
         var config = ConfigManager.shared.read()
         config.ngl = ngl
         config.fa = fa
@@ -82,6 +82,7 @@ final class ModelManager {
         config.ctv = ctv
         config.threads = threads
         config.batchSize = batchSize
+        config.ubatchSize = ubatchSize
         config.context = context
         config.port = port
         config.profile = profile

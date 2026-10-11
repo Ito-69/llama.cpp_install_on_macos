@@ -11,12 +11,13 @@ struct ServerConfig {
     var port = "8080"
     var context = "8192"
     var host = "0.0.0.0"
-    var ngl = "40"
+    var ngl = "99"
     var fa = "1"
     var ctk = "q8_0"
     var ctv = "q8_0"
     var threads = "0"
-    var batchSize = "512"
+    var batchSize = "2048"
+    var ubatchSize = "512"
     var profile = "balanced"
 
     static let defaultKeys: [(key: String, value: KeyPath<ServerConfig, String>)] = [
@@ -29,6 +30,7 @@ struct ServerConfig {
         ("CTV", \.ctv),
         ("THREADS", \.threads),
         ("BATCH_SIZE", \.batchSize),
+        ("UBATCH_SIZE", \.ubatchSize),
         ("PROFILE", \.profile),
         ("MODEL_LABEL", \.modelLabel),
         ("MODEL_REPO", \.modelRepo),
@@ -64,6 +66,7 @@ final class ConfigManager {
             case "CTV":         config.ctv = raw
             case "THREADS":     config.threads = raw
             case "BATCH_SIZE":  config.batchSize = raw
+            case "UBATCH_SIZE": config.ubatchSize = raw
             case "PROFILE":     config.profile = raw
             case "MODEL_LABEL": config.modelLabel = raw
             case "MODEL_REPO":  config.modelRepo = raw
@@ -93,6 +96,7 @@ final class ConfigManager {
         CTV="\(config.ctv)"
         THREADS=\(config.threads)
         BATCH_SIZE=\(config.batchSize)
+        UBATCH_SIZE=\(config.ubatchSize)
         PROFILE="\(config.profile)"
         """
         try FileManager.default.createDirectory(atPath: (configPath as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
@@ -142,12 +146,13 @@ final class ConfigManager {
           -c "${CONTEXT}" \\
           --port "${PORT}" \\
           --host "${HOST}" \\
-          -ngl "${NGL:-40}" \\
-          -fa "${FA:-0}" \\
+          -ngl "${NGL:-99}" \\
+          -fa "${FA:-1}" \\
           -ctk "${CTK:-f16}" \\
           -ctv "${CTV:-f16}" \\
           -t "${THREADS:-0}" \\
-          -b "${BATCH_SIZE:-512}"
+          -b "${BATCH_SIZE:-2048}" \\
+          -ub "${UBATCH_SIZE:-512}"
         """
         try script.write(toFile: startScriptPath, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: startScriptPath)
