@@ -12,6 +12,13 @@ llama-b*/
 # Extraction temp dirs
 .llama-extract-*
 
+# Release artifacts — the DMG is uploaded to the GitHub Release, not committed
+release-out/
+
+# Swift build output and packaged app
+llamamate/.build/
+llamamate/LlamaMate.app/
+
 # Kilo plans and config (local dev)
 .kilo/
 
