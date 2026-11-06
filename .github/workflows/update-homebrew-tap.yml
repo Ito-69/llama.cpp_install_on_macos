@@ -3,10 +3,19 @@ name: Update Homebrew Tap
 on:
   release:
     types: [published]
+  # Called by release.yml after it publishes a release (a release published by
+  # GITHUB_TOKEN does not emit the `release` event to other workflows).
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to sync into the tap, e.g. v2.4.0"
+        required: true
 
 jobs:
   update-tap:
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.event.release.tag_name || github.ref_name }}
     permissions:
       contents: read
     steps:
@@ -15,7 +24,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          gh release download "$GITHUB_REF_NAME" \
+          gh release download "$RELEASE_TAG" \
             --pattern "LlamaMate-*.dmg" \
             --dir ./artifacts \
             --repo "$GITHUB_REPOSITORY"
@@ -38,7 +47,7 @@ jobs:
       - name: Extract version
         id: version
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
+          TAG="${RELEASE_TAG#v}"
           echo "version=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Clone tap repo
