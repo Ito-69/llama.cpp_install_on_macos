@@ -82,6 +82,7 @@ func migrateStartScriptIfOutdated() {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         ensureSupportDir()
+        KeychainStore.migrateHFTokenFromDefaultsIfNeeded()
         copyBundledScript()
         migrateStartScriptIfOutdated()
         _ = MenuBarController.shared
@@ -271,7 +272,7 @@ func runProcess(executable: String, arguments: [String], currentDirectory: Strin
     task.arguments = arguments
     var env = ProcessInfo.processInfo.environment
     env["DYLD_LIBRARY_PATH"] = NSHomeDirectory() + "/.local/lib"
-    if let hfToken = UserDefaults.standard.string(forKey: "hf_token"), !hfToken.isEmpty {
+    if let hfToken = KeychainStore.hfToken {
         env["HF_TOKEN"] = hfToken
     }
     task.environment = env
@@ -325,7 +326,7 @@ func runProcess(executable: String, arguments: [String], currentDirectory: Strin
 // MARK: - Hugging Face Token
 
 func promptForHfTokenIfNeeded() {
-    guard UserDefaults.standard.string(forKey: "hf_token") == nil else { return }
+    guard KeychainStore.hfToken == nil else { return }
 
     let alert = NSAlert()
     alert.messageText = "Hugging Face Token"
@@ -341,7 +342,7 @@ func promptForHfTokenIfNeeded() {
     if response == .alertFirstButtonReturn {
         let token = textField.stringValue.trimmingCharacters(in: .whitespaces)
         if !token.isEmpty {
-            UserDefaults.standard.set(token, forKey: "hf_token")
+            KeychainStore.setHFToken(token)
         }
     }
 }
@@ -487,17 +488,29 @@ final class AppUpdateManager {
         }.resume()
     }
 
-    private func compareVersions(_ a: String, _ b: String) -> Int {
-        let aParts = a.components(separatedBy: ".").map { Int($0) ?? 0 }
-        let bParts = b.components(separatedBy: ".").map { Int($0) ?? 0 }
-        let count = max(aParts.count, bParts.count)
-        for i in 0..<count {
-            let av = i < aParts.count ? aParts[i] : 0
-            let bv = i < bParts.count ? bParts[i] : 0
-            if av > bv { return 1 }
-            if av < bv { return -1 }
+    func compareVersions(_ a: String, _ b: String) -> Int {
+        func parse(_ v: String) -> (nums: [Int], suffix: String) {
+            let split = v.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+            let head = String(split[0])
+            let suffix = split.count > 1 ? String(split[1]) : ""
+            let nums = head.split(separator: ".").map { Int($0) ?? 0 }
+            return (nums, suffix)
         }
-        return 0
+        let pa = parse(a), pb = parse(b)
+        let count = max(pa.nums.count, pb.nums.count)
+        for i in 0..<count {
+            let av = i < pa.nums.count ? pa.nums[i] : 0
+            let bv = i < pb.nums.count ? pb.nums[i] : 0
+            if av != bv { return av > bv ? 1 : -1 }
+        }
+        // Equal numeric version: a release (no suffix) outranks a pre-release
+        // (e.g. 2.3.21 > 2.3.21-beta).
+        switch (pa.suffix.isEmpty, pb.suffix.isEmpty) {
+        case (true, true):   return 0
+        case (true, false):  return 1
+        case (false, true):  return -1
+        case (false, false): return pa.suffix == pb.suffix ? 0 : (pa.suffix < pb.suffix ? -1 : 1)
+        }
     }
 
     private func isInstalledViaHomebrew() -> Bool {

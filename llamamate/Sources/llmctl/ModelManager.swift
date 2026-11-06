@@ -110,7 +110,7 @@ final class ModelManager {
 
         var request = URLRequest(url: url)
         request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
-        if let token = UserDefaults.standard.string(forKey: "hf_token"), !token.isEmpty {
+        if let token = KeychainStore.hfToken {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
