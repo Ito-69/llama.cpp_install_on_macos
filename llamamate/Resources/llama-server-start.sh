@@ -13,7 +13,7 @@ set -euo pipefail
 CONFIG="${HOME}/.config/llama/server.conf"
 [[ -f "$CONFIG" ]] && source "$CONFIG"
 
-BIN="${HOME}/.local/bin/llama-server"
+BIN="${LLAMA_SERVER_BIN:-${HOME}/.local/bin/llama-server}"
 export PATH="${HOME}/.local/bin:${PATH}"
 export DYLD_LIBRARY_PATH="${HOME}/.local/lib:${DYLD_LIBRARY_PATH:-}"
 
@@ -92,7 +92,27 @@ else
   rm -f "$KEY_FILE"
 fi
 
-# NOTE (Phase 3b): optional perf flags (--cache-reuse, -tb, mlock via -lm/--mlock)
-# will be appended here, each guarded by `supports`.
+# ── Optional performance flags (each gated on --help support) ────────────────
+# Prompt/chat KV reuse across requests.
+if [[ -n "${CACHE_REUSE:-}" && "${CACHE_REUSE}" != "0" ]] && supports '--cache-reuse'; then
+  ARGS+=( --cache-reuse "${CACHE_REUSE}" )
+fi
+
+# Keep the model resident in RAM. Newer builds use -lm mmap+mlock; older ones
+# use --mlock; if neither exists, skip with a note.
+if [[ "${MLOCK:-0}" == "1" ]]; then
+  if supports '--load-mode'; then
+    ARGS+=( -lm mmap+mlock )
+  elif supports '--mlock'; then
+    ARGS+=( --mlock )
+  else
+    echo "[LlamaMate] mlock not supported by this llama-server; skipping." >&2
+  fi
+fi
+
+# Separate thread count for prompt/batch processing.
+if [[ -n "${THREADS_BATCH:-}" ]] && { supports '-tb,' || supports '--threads-batch'; }; then
+  ARGS+=( -tb "${THREADS_BATCH}" )
+fi
 
 exec "$BIN" "${ARGS[@]}"

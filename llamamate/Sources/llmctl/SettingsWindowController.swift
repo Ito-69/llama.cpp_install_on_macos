@@ -20,6 +20,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var lanCheckbox: NSButton!
     private var lanWarning: NSTextField!
     private var apiKeyField: NSTextField!
+    private var cacheReuseCheckbox: NSButton!
+    private var mlockCheckbox: NSButton!
+    private var threadsBatchField: NSTextField!
     private var ramLabel: NSTextField!
     private var diagnosticsLabel: NSTextField!
     private var usageLabel: NSTextField!
@@ -46,6 +49,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     func showWindow() {
         if window == nil { buildWindow() }
         syncFromServerManager()
+        loadPerfControls()
         updateRamEstimate()
         updateUsage()
         usageTimer?.invalidate()
@@ -60,7 +64,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     private func buildWindow() {
         let w = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 632),
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 724),
             styleMask: [.titled, .closable],
             backing: .buffered, defer: false
         )
@@ -73,7 +77,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let content = NSView(frame: w.contentView!.bounds)
         content.autoresizingMask = [.width, .height]
 
-        var y: CGFloat = 592
+        var y: CGFloat = 684
 
         // ── Header ──
         let header = NSTextField(labelWithString: "Server Configuration")
@@ -211,6 +215,30 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         genBtn.toolTip = "Generate a random 32-character key."
         content.addSubview(genBtn)
         y -= 34
+
+        // ── Cache reuse row ──
+        addLabel("Speed:", x: 16, y: y - 2, width: 110, to: content)
+        cacheReuseCheckbox = NSButton(checkboxWithTitle: "Faster regenerate / chat (cache reuse)", target: nil, action: nil)
+        cacheReuseCheckbox.frame = NSRect(x: 130, y: y, width: 330, height: 22)
+        cacheReuseCheckbox.toolTip = "Reuse the KV cache across requests with a common prefix (--cache-reuse 256). Speeds up multi-turn chat and regenerate."
+        content.addSubview(cacheReuseCheckbox)
+        y -= 28
+
+        // ── mlock row ──
+        mlockCheckbox = NSButton(checkboxWithTitle: "Keep model in RAM (mlock)", target: nil, action: nil)
+        mlockCheckbox.frame = NSRect(x: 130, y: y, width: 330, height: 22)
+        mlockCheckbox.toolTip = "Keeps the model in RAM (no swapping). Only if you have free RAM for the whole model; limited effect with full GPU offload."
+        content.addSubview(mlockCheckbox)
+        y -= 28
+
+        // ── Threads-batch row ──
+        addLabel("Batch threads:", x: 16, y: y - 2, width: 110, to: content)
+        threadsBatchField = NSTextField(frame: NSRect(x: 130, y: y, width: 80, height: 22))
+        threadsBatchField.placeholderString = "auto"
+        threadsBatchField.toolTip = "Threads for prompt/batch processing (-tb). Empty = auto. Modest effect with full GPU offload."
+        content.addSubview(threadsBatchField)
+        addHint("empty = auto", x: 220, y: y, to: content)
+        y -= 36
 
         // ── Separator ──
         let sep2 = separator(frame: NSRect(x: 16, y: y, width: 488, height: 1))
@@ -442,6 +470,21 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         return lanCheckbox.state == .on ? "0.0.0.0" : "127.0.0.1"
     }
 
+    /// Populated only when the window opens, so changing the profile does not
+    /// reset these three performance options.
+    private func loadPerfControls() {
+        let sm = ServerManager.shared
+        cacheReuseCheckbox.state = (sm.cacheReuse != "0" && !sm.cacheReuse.isEmpty) ? .on : .off
+        mlockCheckbox.state = (sm.mlock == "1") ? .on : .off
+        threadsBatchField.stringValue = sm.threadsBatch
+    }
+
+    private func currentCacheReuse() -> String { cacheReuseCheckbox.state == .on ? "256" : "0" }
+    private func currentMlock() -> String { mlockCheckbox.state == .on ? "1" : "0" }
+    private func currentThreadsBatch() -> String {
+        threadsBatchField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func currentApiKey() -> String {
         apiKeyField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -540,11 +583,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                 ctv: cacheType,
                 threads: threadsField.stringValue.isEmpty ? "0" : threadsField.stringValue,
                 batchSize: batchField.stringValue.isEmpty ? "2048" : batchField.stringValue,
-                ubatchSize: "512",
                 context: currentContext(),
                 port: portField.stringValue.isEmpty ? "8080" : portField.stringValue,
                 host: currentHost(),
                 apiKey: currentApiKey(),
+                cacheReuse: currentCacheReuse(),
+                mlock: currentMlock(),
+                threadsBatch: currentThreadsBatch(),
                 profile: currentProfile()
             )
             window.close()

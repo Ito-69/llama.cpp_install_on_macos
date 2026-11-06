@@ -19,6 +19,9 @@ struct ServerConfig {
     var threads = "0"
     var batchSize = "2048"
     var ubatchSize = "512"
+    var cacheReuse = "256"
+    var mlock = "0"
+    var threadsBatch = ""
     var profile = "balanced"
 
     static let defaultKeys: [(key: String, value: KeyPath<ServerConfig, String>)] = [
@@ -70,6 +73,9 @@ final class ConfigManager {
             case "THREADS":     config.threads = raw
             case "BATCH_SIZE":  config.batchSize = raw
             case "UBATCH_SIZE": config.ubatchSize = raw
+            case "CACHE_REUSE": config.cacheReuse = raw
+            case "MLOCK":       config.mlock = raw
+            case "THREADS_BATCH": config.threadsBatch = raw
             case "PROFILE":     config.profile = raw
             case "MODEL_LABEL": config.modelLabel = raw
             case "MODEL_REPO":  config.modelRepo = raw
@@ -101,6 +107,9 @@ final class ConfigManager {
         THREADS=\(config.threads)
         BATCH_SIZE=\(config.batchSize)
         UBATCH_SIZE=\(config.ubatchSize)
+        CACHE_REUSE=\(config.cacheReuse)
+        MLOCK=\(config.mlock)
+        THREADS_BATCH=\(config.threadsBatch)
         PROFILE="\(config.profile)"
         """
         try FileManager.default.createDirectory(atPath: (configPath as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
