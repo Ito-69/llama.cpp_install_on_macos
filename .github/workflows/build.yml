@@ -1,0 +1,39 @@
+name: Build
+
+# Compiles the universal app on macOS for every pull request (and pushes to
+# main), so Swift changes are verified before merge. Does not publish anything.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shell syntax
+        run: |
+          bash -n install-llama.sh
+          bash -n llamamate/Resources/llama-server-start.sh
+          bash -n release.sh
+
+      - name: Build app (universal)
+        run: cd llamamate && ./build.sh
+
+      - name: Verify bundle
+        run: |
+          set -euo pipefail
+          APP=llamamate/LlamaMate.app
+          lipo -info "$APP/Contents/MacOS/llmctl" | tee /dev/stderr | grep -q arm64
+          lipo -info "$APP/Contents/MacOS/llmctl" | grep -q x86_64
+          codesign --verify --deep --verbose=2 "$APP"

@@ -132,6 +132,8 @@ final class ServerManager {
     private(set) var cacheReuse = "256"
     private(set) var mlock = "0"
     private(set) var threadsBatch = ""
+    private(set) var reasoningEffort = "default"
+    private(set) var reasoningBudget = ""
     private(set) var profile = "balanced"
 
     var onStatusChange: (() -> Void)?
@@ -211,6 +213,8 @@ final class ServerManager {
         cacheReuse = config.cacheReuse
         mlock = config.mlock
         threadsBatch = config.threadsBatch
+        reasoningEffort = config.reasoningEffort.isEmpty ? "default" : config.reasoningEffort
+        reasoningBudget = config.reasoningBudget
         profile = config.profile
         apiKey = config.apiKey
     }

@@ -117,7 +117,7 @@ final class ModelManager {
 
     // MARK: Save Settings
 
-    func saveSettings(ngl: String, fa: String, ctk: String, ctv: String, threads: String, batchSize: String, context: String, port: String, host: String, apiKey: String, cacheReuse: String, mlock: String, threadsBatch: String, profile: String) throws {
+    func saveSettings(ngl: String, fa: String, ctk: String, ctv: String, threads: String, batchSize: String, context: String, port: String, host: String, apiKey: String, cacheReuse: String, mlock: String, threadsBatch: String, reasoningEffort: String, reasoningBudget: String, profile: String) throws {
         var config = ConfigManager.shared.read()
         config.ngl = ngl
         config.fa = fa
@@ -133,6 +133,8 @@ final class ModelManager {
         config.cacheReuse = cacheReuse
         config.mlock = mlock
         config.threadsBatch = threadsBatch
+        config.reasoningEffort = reasoningEffort
+        config.reasoningBudget = reasoningBudget
         config.profile = profile
         try ConfigManager.shared.apply(config)
     }
