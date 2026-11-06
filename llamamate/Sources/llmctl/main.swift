@@ -354,10 +354,15 @@ func runProcess(executable: String, arguments: [String], currentDirectory: Strin
             let take = buf.count - drop
             if let s = String(data: buf.prefix(take), encoding: .utf8) {
                 buf.removeFirst(take)
-                return s
+                return s // valid prefix; any 1–3 byte incomplete tail is kept
             }
         }
-        return "" // only an incomplete tail so far — wait for more bytes
+        // Dropping up to 3 bytes still fails → the bad byte is in the middle,
+        // not an incomplete tail. Decode lossily and clear so output never
+        // stalls and the buffer can't grow until the process exits.
+        let s = String(decoding: buf, as: UTF8.self)
+        buf.removeAll(keepingCapacity: true)
+        return s
     }
 
     func pump(_ handle: FileHandle, _ buf: inout Data) {

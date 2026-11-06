@@ -29,7 +29,16 @@ enum GGUFInfo {
     // GGUF value type ids
     private enum T { static let u8=0, i8=1, u16=2, i16=3, u32=4, i32=5, f32=6, bool=7, string=8, array=9, u64=10, i64=11, f64=12 }
 
+    // Cache keyed by path+mtime so repeated Settings updates don't re-read 16 MB.
+    private static var cache: [String: (mtime: TimeInterval, meta: GGUFMetadata)] = [:]
+    private static let cacheLock = NSLock()
+
     static func read(path: String, maxBytes: Int = 16 * 1024 * 1024) -> GGUFMetadata? {
+        let mtime = ((try? FileManager.default.attributesOfItem(atPath: path)[.modificationDate]) as? Date)?.timeIntervalSince1970 ?? 0
+        cacheLock.lock()
+        if let hit = cache[path], hit.mtime == mtime { cacheLock.unlock(); return hit.meta }
+        cacheLock.unlock()
+
         guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
         defer { try? handle.close() }
         guard let data = try? handle.read(upToCount: maxBytes), data.count >= 24 else { return nil }
@@ -73,6 +82,9 @@ enum GGUFInfo {
             meta.headCount = numeric["\(a).attention.head_count"]
             meta.contextLength = numeric["\(a).context_length"]
         }
+        cacheLock.lock()
+        cache[path] = (mtime, meta)
+        cacheLock.unlock()
         return meta
     }
 
