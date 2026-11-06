@@ -202,6 +202,7 @@ final class DownloadCoordinator: NSObject, URLSessionDataDelegate {
     private var currentFinalPath = ""
     private var currentExpected: Int64 = 0
     private var part416 = false               // 416 => part already complete on disk
+    private var partStartOffset: Int64 = 0    // byte offset this attempt resumes from
     private var lastProgressTime: TimeInterval = 0
 
     init(modelsDir: String, repo: String, parts: [DownloadPart],
@@ -231,7 +232,12 @@ final class DownloadCoordinator: NSObject, URLSessionDataDelegate {
 
     func cancel() {
         cancelled = true
-        currentTask?.cancel()
+        // Cancel on the delegate queue so it can't race the delegate callbacks.
+        if let q = session?.delegateQueue {
+            q.addOperation { [weak self] in self?.currentTask?.cancel() }
+        } else {
+            currentTask?.cancel()
+        }
     }
 
     // MARK: space
@@ -303,6 +309,7 @@ final class DownloadCoordinator: NSObject, URLSessionDataDelegate {
 
         let existing = fm.fileExists(atPath: currentTempPath) ? fileSize(currentTempPath) : 0
         currentPartBytes = existing
+        partStartOffset = existing
 
         // Percent-encode each path segment but keep the slashes.
         let encoded = part.file.split(separator: "/", omittingEmptySubsequences: false)
@@ -327,35 +334,72 @@ final class DownloadCoordinator: NSObject, URLSessionDataDelegate {
 
     // MARK: URLSessionDataDelegate
 
+    /// Parses the start offset from a `Content-Range: bytes START-END/TOTAL` header.
+    private func contentRangeStart(_ response: URLResponse) -> Int64? {
+        guard let http = response as? HTTPURLResponse,
+              let cr = http.value(forHTTPHeaderField: "Content-Range"),
+              let r = cr.range(of: #"bytes\s+(\d+)-"#, options: .regularExpression) else { return nil }
+        let digits = cr[r].filter { $0.isNumber }
+        return Int64(digits)
+    }
+
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
                     completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
         let fm = FileManager.default
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
 
         if code == 416 {
-            // Range beyond EOF: the .download already holds the whole file.
+            // Range beyond EOF: the .download may already hold the whole file.
             part416 = true
             completionHandler(.cancel)
             return
         }
+
         if code == 200 {
-            // Server ignored Range — restart this part from scratch.
-            emitLog("Server ignored resume; restarting part\n")
+            // Full body. Only a *resume attempt* being ignored is noteworthy.
+            if partStartOffset > 0 { emitLog("Server ignored resume; restarting from scratch\n") }
             try? fm.removeItem(atPath: currentTempPath)
             fm.createFile(atPath: currentTempPath, contents: nil)
             tempHandle = FileHandle(forWritingAtPath: currentTempPath)
             currentPartBytes = 0
-        } else {
-            // 206 (or another 2xx) — append to the existing temp.
+            completionHandler(.allow)
+            return
+        }
+
+        if code == 206 {
+            // Partial content — must resume exactly from where we left off.
+            let start = contentRangeStart(response)
+            guard start == partStartOffset else {
+                emitLog("Unexpected Content-Range (start \(start.map(String.init) ?? "?"), expected \(partStartOffset)); discarding partial file.\n")
+                try? fm.removeItem(atPath: currentTempPath)
+                completionHandler(.cancel)
+                finish(false)
+                return
+            }
             if !fm.fileExists(atPath: currentTempPath) { fm.createFile(atPath: currentTempPath, contents: nil) }
             tempHandle = FileHandle(forWritingAtPath: currentTempPath)
             tempHandle?.seekToEndOfFile()
+            currentPartBytes = partStartOffset
+            completionHandler(.allow)
+            return
         }
-        completionHandler(.allow)
+
+        // Any other status (401/403/404/5xx…): don't touch the file, keep the
+        // partial download for a later retry.
+        emitLog("\nDownload failed with HTTP \(code).\n")
+        completionHandler(.cancel)
+        finish(false)
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        tempHandle?.write(data)
+        do {
+            try tempHandle?.write(contentsOf: data)
+        } catch {
+            emitLog("\nWrite failed (\(error.localizedDescription)); stopping. Partial file kept.\n")
+            finish(false)          // sets finished before the cancel's didComplete
+            currentTask?.cancel()
+            return
+        }
         currentPartBytes += Int64(data.count)
         if totalExpected > 0 {
             emitProgress(Double(completedBytes + currentPartBytes) / Double(totalExpected), force: false)
@@ -366,11 +410,14 @@ final class DownloadCoordinator: NSObject, URLSessionDataDelegate {
         tempHandle?.closeFile()
         tempHandle = nil
 
-        // 416 success path (part already complete).
+        // 416 success path (part may already be complete on disk).
         if part416 {
-            finalizeCurrentPart()
+            finalize416()
             return
         }
+
+        // A disposition of .cancel on an error/HTTP branch already finished us.
+        if finished { return }
 
         if let error = error as NSError? {
             if error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled {
@@ -390,16 +437,40 @@ final class DownloadCoordinator: NSObject, URLSessionDataDelegate {
         finalizeCurrentPart()
     }
 
-    /// Verify size and move the finished temp file into place, then continue.
+    /// Normal (2xx) completion: verify size, then move into place.
     private func finalizeCurrentPart() {
-        let fm = FileManager.default
-        let name = (currentFinalPath as NSString).lastPathComponent
+        let sz = fileSize(currentTempPath)
+        if currentExpected > 0 {
+            if sz > currentExpected {
+                emitLog("Corrupt partial file (\(sz) > expected \(currentExpected)) — restarting from scratch; press Download again.\n")
+                try? FileManager.default.removeItem(atPath: currentTempPath)
+                finish(false)
+                return
+            }
+            if sz < currentExpected {
+                emitLog("Incomplete: \(sz)/\(currentExpected) bytes. Press Download again to resume.\n")
+                finish(false) // keep .download
+                return
+            }
+        }
+        moveIntoPlaceAndContinue(sz)
+    }
+
+    /// 416 completion: the temp should already be the full file.
+    private func finalize416() {
         let sz = fileSize(currentTempPath)
         if currentExpected > 0 && sz != currentExpected {
-            emitLog("Size mismatch for \(name): got \(sz) bytes, expected \(currentExpected). Not saved — press Download again to resume.\n")
+            emitLog("Corrupt partial file (\(sz), expected \(currentExpected)) — restarting from scratch; press Download again.\n")
+            try? FileManager.default.removeItem(atPath: currentTempPath)
             finish(false)
             return
         }
+        moveIntoPlaceAndContinue(sz)
+    }
+
+    private func moveIntoPlaceAndContinue(_ sz: Int64) {
+        let fm = FileManager.default
+        let name = (currentFinalPath as NSString).lastPathComponent
         do {
             if fm.fileExists(atPath: currentFinalPath) { try fm.removeItem(atPath: currentFinalPath) }
             try fm.moveItem(atPath: currentTempPath, toPath: currentFinalPath)
