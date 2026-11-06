@@ -136,4 +136,22 @@ if [[ -n "${THREADS_BATCH:-}" ]] && { supports '-tb,' || supports '--threads-bat
   ARGS+=( -tb "${THREADS_BATCH}" )
 fi
 
+# ── Log rotation ─────────────────────────────────────────────────────────────
+# launchd opens the log files in append mode, so trimming them here (before the
+# server starts writing) is safe: subsequent writes go to the new EOF.
+rotate_log() {
+  local lf="$1" sz tmp
+  [[ -f "$lf" ]] || return 0
+  sz=$(stat -f%z "$lf" 2>/dev/null || echo 0)
+  if [[ "$sz" -gt 20971520 ]]; then   # > 20 MB
+    tmp="${lf}.rot.$$"
+    if tail -c 5242880 "$lf" > "$tmp" 2>/dev/null; then  # keep last 5 MB
+      cat "$tmp" > "$lf"
+    fi
+    rm -f "$tmp"
+  fi
+}
+rotate_log "${HOME}/Library/Logs/llama-server.log"
+rotate_log "${HOME}/Library/Logs/llama-server.err.log"
+
 exec "$BIN" "${ARGS[@]}"

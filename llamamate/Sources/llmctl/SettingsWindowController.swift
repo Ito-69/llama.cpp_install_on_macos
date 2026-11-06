@@ -676,7 +676,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                 parts.append(String(format: "LlamaMate: %.1f%% CPU · %.1f MB RAM", selfCpu, Double(selfMem) / 1_000_000.0))
 
                 if let server = serverUsage {
-                    let gpuText = gpu != nil ? String(format: " · GPU %.0f%%", gpu!) : ""
+                    // ioreg "Device Utilization %" is not exposed on every GPU,
+                    // so label it approximate and omit it when unavailable.
+                    let gpuText = gpu != nil ? String(format: " · GPU ~%.0f%% (approx)", gpu!) : ""
                     parts.append(String(format: "llama-server: %.1f%% CPU · %.1f MB RAM%@", server.cpu, server.ramMB, gpuText))
                 } else {
                     parts.append("llama-server: not running")
