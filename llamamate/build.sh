@@ -24,6 +24,10 @@ mkdir -p "${APP_NAME}.app/Contents/Resources"
 cp Sources/llmctl/llama.png "${APP_NAME}.app/Contents/Resources/llama.png"
 cp Sources/llmctl/llama.icns "${APP_NAME}.app/Contents/Resources/llama.icns"
 
+# Bundle the canonical start script (single source of truth)
+cp Resources/llama-server-start.sh "${APP_NAME}.app/Contents/Resources/llama-server-start.sh"
+chmod +x "${APP_NAME}.app/Contents/Resources/llama-server-start.sh"
+
 # Bundle install-llama.sh for offline/portable use
 if [[ -f "../install-llama.sh" ]]; then
   cp "../install-llama.sh" "${APP_NAME}.app/Contents/Resources/install-llama.sh"

@@ -5,8 +5,10 @@ import Foundation
 
 let APP_SUPPORT_DIR = NSHomeDirectory() + "/Library/Application Support/LlamaMate"
 let INSTALL_SCRIPT_PATH = APP_SUPPORT_DIR + "/install-llama.sh"
+let START_SCRIPT_RESOURCE = APP_SUPPORT_DIR + "/llama-server-start.sh"
 let CONFIG_PATH = "\(NSHomeDirectory())/.config/llama/server.conf"
 
+@discardableResult
 func ensureSupportDir() -> Bool {
     let fm = FileManager.default
     var isDir: ObjCBool = false
@@ -21,14 +23,29 @@ func ensureSupportDir() -> Bool {
     }
 }
 
+@discardableResult
 func copyBundledScript() -> Bool {
     guard let resPath = Bundle.main.resourcePath else { return false }
-    let bundled = resPath + "/install-llama.sh"
-    guard FileManager.default.fileExists(atPath: bundled) else { return false }
     let fm = FileManager.default
+
+    // install-llama.sh (required)
+    let bundledInstaller = resPath + "/install-llama.sh"
+    guard fm.fileExists(atPath: bundledInstaller) else { return false }
+
+    // Copy the canonical start script next to install-llama.sh so that the
+    // installer's write_start_script() can reuse it instead of its embedded
+    // fallback — keeping a single source of truth.
+    let bundledStart = resPath + "/llama-server-start.sh"
+    if fm.fileExists(atPath: bundledStart) {
+        try? fm.removeItem(atPath: START_SCRIPT_RESOURCE)
+        if (try? fm.copyItem(atPath: bundledStart, toPath: START_SCRIPT_RESOURCE)) != nil {
+            try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: START_SCRIPT_RESOURCE)
+        }
+    }
+
     try? fm.removeItem(atPath: INSTALL_SCRIPT_PATH)
     do {
-        try fm.copyItem(atPath: bundled, toPath: INSTALL_SCRIPT_PATH)
+        try fm.copyItem(atPath: bundledInstaller, toPath: INSTALL_SCRIPT_PATH)
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: INSTALL_SCRIPT_PATH)
         return true
     } catch {

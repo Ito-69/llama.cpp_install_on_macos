@@ -12,6 +12,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var contextPopup: NSPopUpButton!
     private var faCheckbox: NSButton!
     private var cachePopup: NSPopUpButton!
+    private var cacheHint: NSTextField!
     private var threadsField: NSTextField!
     private var batchField: NSTextField!
     private var portField: NSTextField!
@@ -135,11 +136,16 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         addLabel("KV cache:", x: 16, y: y - 2, width: 110, to: content)
         cachePopup = NSPopUpButton(frame: NSRect(x: 130, y: y, width: 150, height: 24))
         cachePopup.addItems(withTitles: ["f16", "q8_0", "q4_0"])
+        cachePopup.autoenablesItems = false
         cachePopup.target = self
         cachePopup.action = #selector(cacheChanged(_:))
-        cachePopup.toolTip = "Quantization of the key/value cache. Lower precision = less RAM, but may reduce quality."
+        cachePopup.toolTip = "Quantization of the key/value cache. Lower precision = less RAM, but may reduce quality. Quantized types require Flash Attention."
         content.addSubview(cachePopup)
-        addHint("quant type (saves RAM)", x: 290, y: y, to: content)
+        cacheHint = NSTextField(labelWithString: "quant type (saves RAM)")
+        cacheHint.frame = NSRect(x: 290, y: y + 2, width: 230, height: 18)
+        cacheHint.font = NSFont.systemFont(ofSize: 11)
+        cacheHint.textColor = .secondaryLabelColor
+        content.addSubview(cacheHint)
         y -= 34
 
         // ── Threads row ──
@@ -275,6 +281,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         threadsField.stringValue = sm.threads == "0" ? "" : sm.threads
         batchField.stringValue = sm.batchSize == "2048" ? "" : sm.batchSize
         portField.stringValue = sm.port
+
+        applyFaCacheGuard()
     }
 
     private func currentProfile() -> String {
@@ -317,7 +325,28 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc private func checkboxChanged(_ sender: NSButton) {
-        // nothing extra
+        applyFaCacheGuard()
+        updateRamEstimate()
+    }
+
+    /// Enforces the Metal constraint that a quantized KV cache (q8_0/q4_0)
+    /// requires Flash Attention. When FA is off, the quantized options are
+    /// disabled and the selection is forced to f16.
+    private func applyFaCacheGuard() {
+        let faOn = faCheckbox.state == .on
+        for item in cachePopup.itemArray where item.title == "q8_0" || item.title == "q4_0" {
+            item.isEnabled = faOn
+        }
+        if !faOn {
+            if cachePopup.titleOfSelectedItem != "f16" {
+                cachePopup.selectItem(withTitle: "f16")
+            }
+            cacheHint.stringValue = "Quantized KV cache requires Flash Attention"
+            cacheHint.textColor = .systemOrange
+        } else {
+            cacheHint.stringValue = "quant type (saves RAM)"
+            cacheHint.textColor = .secondaryLabelColor
+        }
     }
 
     @objc private func contextChanged(_ sender: NSPopUpButton) {
@@ -407,11 +436,16 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     @objc private func applyClicked() {
         do {
+            // Belt-and-suspenders guard: a quantized KV cache requires Flash
+            // Attention on Metal. If FA is off, persist f16 regardless of the
+            // (disabled) popup selection.
+            let faOn = currentFa() == "1"
+            let cacheType = faOn ? currentCtk() : "f16"
             try ModelManager.shared.saveSettings(
                 ngl: currentNgl(),
                 fa: currentFa(),
-                ctk: currentCtk(),
-                ctv: currentCtk(),
+                ctk: cacheType,
+                ctv: cacheType,
                 threads: threadsField.stringValue.isEmpty ? "0" : threadsField.stringValue,
                 batchSize: batchField.stringValue.isEmpty ? "2048" : batchField.stringValue,
                 ubatchSize: "512",
