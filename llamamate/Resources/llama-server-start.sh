@@ -17,11 +17,32 @@ BIN="${LLAMA_SERVER_BIN:-${HOME}/.local/bin/llama-server}"
 export PATH="${HOME}/.local/bin:${PATH}"
 export DYLD_LIBRARY_PATH="${HOME}/.local/lib:${DYLD_LIBRARY_PATH:-}"
 
+# ── Sanitize numeric settings ────────────────────────────────────────────────
+# server.conf is sourced, so a hand-edited non-numeric value could misbehave;
+# any numeric field that isn't all digits falls back to its default with a
+# warning. (Empty THREADS_BATCH means "auto" and is left empty.)
+san() {
+  local name="$1" def="$2" val="${!1-}"
+  if [[ -n "$val" && ! "$val" =~ ^[0-9]+$ ]]; then
+    echo "[LlamaMate] Invalid ${name}='${val}' in server.conf; using '${def:-auto}'." >&2
+    printf -v "$name" '%s' "$def"
+  fi
+}
+san PORT 8080
+san CONTEXT 8192
+san NGL 99
+san THREADS 0
+san BATCH_SIZE 2048
+san UBATCH_SIZE 512
+san CACHE_REUSE 256
+san THREADS_BATCH ""
+
 # ── Effective values (with defaults) ─────────────────────────────────────────
 FA_VAL="${FA:-1}"
 CTK_VAL="${CTK:-q8_0}"
 CTV_VAL="${CTV:-q8_0}"
 CTX_VAL="${CONTEXT:-8192}"
+CACHE_REUSE="${CACHE_REUSE:-256}"
 
 # ── Flash Attention / KV-cache guard ─────────────────────────────────────────
 # On Metal a quantized KV cache (q8_0/q4_0) requires Flash Attention. If a
@@ -94,7 +115,7 @@ fi
 
 # ── Optional performance flags (each gated on --help support) ────────────────
 # Prompt/chat KV reuse across requests.
-if [[ -n "${CACHE_REUSE:-}" && "${CACHE_REUSE}" != "0" ]] && supports '--cache-reuse'; then
+if [[ "${CACHE_REUSE}" != "0" ]] && supports '--cache-reuse'; then
   ARGS+=( --cache-reuse "${CACHE_REUSE}" )
 fi
 

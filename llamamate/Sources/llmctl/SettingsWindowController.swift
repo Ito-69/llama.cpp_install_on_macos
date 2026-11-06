@@ -569,7 +569,39 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     // MARK: Actions
 
+    /// Field must be empty (→ caller's default/auto) or all digits.
+    private func validateNumericField(_ value: String, name: String, range: ClosedRange<Int>? = nil) -> Bool {
+        let v = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if v.isEmpty { return true }
+        guard v.allSatisfy({ $0.isNumber }), let n = Int(v) else {
+            showInvalid(name, "must be a whole number.")
+            return false
+        }
+        if let range = range, !range.contains(n) {
+            showInvalid(name, "must be between \(range.lowerBound) and \(range.upperBound).")
+            return false
+        }
+        return true
+    }
+
+    private func showInvalid(_ name: String, _ why: String) {
+        let alert = NSAlert()
+        alert.messageText = "Invalid \(name)"
+        alert.informativeText = "\(name) \(why) The settings were not saved."
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
     @objc private func applyClicked() {
+        // Validate numeric fields before writing anything (server.conf is
+        // sourced, so only digits are allowed through).
+        guard validateNumericField(threadsField.stringValue, name: "Threads"),
+              validateNumericField(batchField.stringValue, name: "Batch"),
+              validateNumericField(threadsBatchField.stringValue, name: "Batch threads"),
+              validateNumericField(portField.stringValue, name: "Port", range: 1024...65535),
+              validateNumericField(currentContext(), name: "Context")
+        else { return }
+
         do {
             // Belt-and-suspenders guard: a quantized KV cache requires Flash
             // Attention on Metal. If FA is off, persist f16 regardless of the
