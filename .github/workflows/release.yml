@@ -1,48 +1,65 @@
 name: Build Release
 
 # Builds the universal LlamaMate.app + DMG on a macOS runner and attaches it to
-# a DRAFT GitHub Release. Publishing the draft (by a person, in the GitHub UI)
-# triggers update-homebrew-tap.yml, which bumps the Homebrew cask.
+# a GitHub Release for v<VERSION> (VERSION from llamamate/build.sh).
 #
-# Trigger: push a tag vX.Y.Z whose version matches VERSION in llamamate/build.sh,
-# or run manually with an existing tag.
+# Two ways to run it:
+#   1. Push a tag vX.Y.Z (must match VERSION) → creates a DRAFT release.
+#      Publishing that draft in the GitHub UI triggers update-homebrew-tap.yml.
+#   2. Actions → Build Release → Run workflow (from main):
+#        publish = false → DRAFT release (tag is created when you publish it)
+#        publish = true  → creates the tag + PUBLISHED release, then dispatches
+#                          update-homebrew-tap.yml so the cask is bumped.
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Existing tag to build, e.g. v2.4.0"
-        required: true
+      publish:
+        description: "Publish the release and update the Homebrew tap"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
-  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   build:
     runs-on: macos-15
     env:
-      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      PUBLISH: ${{ github.event_name == 'workflow_dispatch' && inputs.publish && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.TAG }}
 
-      - name: Check tag matches build.sh VERSION
+      - name: Resolve version and tag
         run: |
           set -euo pipefail
-          VER="${TAG#v}"
-          BUILD_VER="$(sed -n 's/^VERSION="\(.*\)"/\1/p' llamamate/build.sh | head -1)"
-          if [[ "$VER" != "$BUILD_VER" ]]; then
-            echo "::error::Tag $TAG does not match llamamate/build.sh VERSION=$BUILD_VER"
+          VERSION="$(sed -n 's/^VERSION="\(.*\)"/\1/p' llamamate/build.sh | head -1)"
+          [[ -n "$VERSION" ]] || { echo "::error::VERSION not found in llamamate/build.sh"; exit 1; }
+          TAG="v${VERSION}"
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "$TAG" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match llamamate/build.sh VERSION=$VERSION"
             exit 1
           fi
-          echo "VERSION=$VER" >> "$GITHUB_ENV"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "Building $TAG from $GITHUB_SHA (publish=$PUBLISH)"
+
+      - name: Refuse to overwrite a published release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null | grep -qx false; then
+            echo "::error::Release $TAG is already published. Bump VERSION in llamamate/build.sh."
+            exit 1
+          fi
 
       - name: Toolchain
         run: |
@@ -66,19 +83,34 @@ jobs:
           ls -la release-out/
           shasum -a 256 "release-out/LlamaMate-${VERSION}.dmg"
 
-      - name: Create or update draft release
+      - name: Create or update release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           DMG="release-out/LlamaMate-${VERSION}.dmg"
           NOTES="release-notes/${TAG}.md"
+          NOTES_ARGS=(--generate-notes)
+          [[ -f "$NOTES" ]] && NOTES_ARGS=(--notes-file "$NOTES")
+
           if gh release view "$TAG" >/dev/null 2>&1; then
+            # Existing draft: replace the DMG.
             gh release upload "$TAG" "$DMG" --clobber
-          else
-            if [[ -f "$NOTES" ]]; then
-              gh release create "$TAG" "$DMG" --draft --verify-tag --title "$TAG" --notes-file "$NOTES"
-            else
-              gh release create "$TAG" "$DMG" --draft --verify-tag --title "$TAG" --generate-notes
+            if [[ "$PUBLISH" == "true" ]]; then
+              gh release edit "$TAG" --draft=false --target "$GITHUB_SHA"
             fi
+          elif [[ "$PUBLISH" == "true" ]]; then
+            gh release create "$TAG" "$DMG" --target "$GITHUB_SHA" --title "$TAG" "${NOTES_ARGS[@]}"
+          else
+            gh release create "$TAG" "$DMG" --draft --target "$GITHUB_SHA" --title "$TAG" "${NOTES_ARGS[@]}"
           fi
+          gh release view "$TAG" --json url,isDraft,tagName --jq '"\(.tagName) draft=\(.isDraft) \(.url)"'
+
+      - name: Update Homebrew tap
+        if: env.PUBLISH == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh workflow run update-homebrew-tap.yml --ref main -f tag="$TAG"
+          echo "Dispatched update-homebrew-tap.yml for $TAG"

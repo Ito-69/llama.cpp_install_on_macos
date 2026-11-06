@@ -11,7 +11,8 @@
      git tag v<version> && git push origin v<version>
      ```
      `.github/workflows/release.yml` builds the universal app and DMG on a macOS runner, verifies it, and creates a **draft** GitHub Release with the DMG and the notes from step 2. The tag must match `VERSION` or the build fails.
-  5. **Test & Publish:** Download the DMG from the draft release, smoke-test the app, then click **Publish release** in the GitHub UI. Publishing must be done by a person (a release published by `GITHUB_TOKEN` does not trigger other workflows).
+     Alternative without a local tag: **Actions → Build Release → Run workflow** on `main` (`publish` unchecked = draft).
+  5. **Test & Publish:** Download the DMG from the draft release, smoke-test the app, then click **Publish release** in the GitHub UI (this triggers the tap update). To build, publish and update the tap in one go, run **Build Release** with `publish` checked — it dispatches `update-homebrew-tap.yml` itself, because a release published by `GITHUB_TOKEN` does not trigger other workflows.
   6. **Homebrew Tap Sync:**
      - `.github/workflows/update-homebrew-tap.yml` triggers on release publish and updates `Casks/llamamate.rb` in `Ito-69/homebrew-llamamate`.
      - Confirm the action finishes and `Casks/llamamate.rb` is updated with the new version and SHA256.
