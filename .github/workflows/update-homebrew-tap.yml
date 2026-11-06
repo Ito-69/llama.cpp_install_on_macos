@@ -65,7 +65,6 @@ jobs:
       - name: Open PR
         env:
           GH_TOKEN: ${{ secrets.TAP_REPO_TOKEN }}
-          TAP_REPO_TOKEN: ${{ secrets.TAP_REPO_TOKEN }}
           VER: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
@@ -99,8 +98,21 @@ jobs:
           VER: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          sleep 5
-          gh pr merge "bump-llamamate-${VER}" \
-            --repo Ito-69/homebrew-llamamate \
-            --squash \
-            --delete-branch
+          # Enable auto-merge so GitHub merges the PR as soon as it is mergeable,
+          # instead of racing a fixed `sleep` against PR creation/mergeability.
+          # Fall back to a bounded retry loop if auto-merge is not permitted.
+          if ! gh pr merge "bump-llamamate-${VER}" \
+                 --repo Ito-69/homebrew-llamamate \
+                 --squash --delete-branch --auto; then
+            for i in 1 2 3 4 5; do
+              if gh pr merge "bump-llamamate-${VER}" \
+                   --repo Ito-69/homebrew-llamamate \
+                   --squash --delete-branch; then
+                exit 0
+              fi
+              echo "merge attempt $i failed, retrying in 3s…"
+              sleep 3
+            done
+            echo "ERROR: could not merge bump-llamamate-${VER}" >&2
+            exit 1
+          fi
