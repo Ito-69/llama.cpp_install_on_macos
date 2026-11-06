@@ -13,15 +13,36 @@ set -euo pipefail
 CONFIG="${HOME}/.config/llama/server.conf"
 [[ -f "$CONFIG" ]] && source "$CONFIG"
 
-BIN="${HOME}/.local/bin/llama-server"
+BIN="${LLAMA_SERVER_BIN:-${HOME}/.local/bin/llama-server}"
 export PATH="${HOME}/.local/bin:${PATH}"
 export DYLD_LIBRARY_PATH="${HOME}/.local/lib:${DYLD_LIBRARY_PATH:-}"
+
+# ── Sanitize numeric settings ────────────────────────────────────────────────
+# server.conf is sourced, so a hand-edited non-numeric value could misbehave;
+# any numeric field that isn't all digits falls back to its default with a
+# warning. (Empty THREADS_BATCH means "auto" and is left empty.)
+san() {
+  local name="$1" def="$2" val="${!1-}"
+  if [[ -n "$val" && ! "$val" =~ ^[0-9]+$ ]]; then
+    echo "[LlamaMate] Invalid ${name}='${val}' in server.conf; using '${def:-auto}'." >&2
+    printf -v "$name" '%s' "$def"
+  fi
+}
+san PORT 8080
+san CONTEXT 8192
+san NGL 99
+san THREADS 0
+san BATCH_SIZE 2048
+san UBATCH_SIZE 512
+san CACHE_REUSE 256
+san THREADS_BATCH ""
 
 # ── Effective values (with defaults) ─────────────────────────────────────────
 FA_VAL="${FA:-1}"
 CTK_VAL="${CTK:-q8_0}"
 CTV_VAL="${CTV:-q8_0}"
 CTX_VAL="${CONTEXT:-8192}"
+CACHE_REUSE="${CACHE_REUSE:-256}"
 
 # ── Flash Attention / KV-cache guard ─────────────────────────────────────────
 # On Metal a quantized KV cache (q8_0/q4_0) requires Flash Attention. If a
@@ -92,7 +113,27 @@ else
   rm -f "$KEY_FILE"
 fi
 
-# NOTE (Phase 3b): optional perf flags (--cache-reuse, -tb, mlock via -lm/--mlock)
-# will be appended here, each guarded by `supports`.
+# ── Optional performance flags (each gated on --help support) ────────────────
+# Prompt/chat KV reuse across requests.
+if [[ "${CACHE_REUSE}" != "0" ]] && supports '--cache-reuse'; then
+  ARGS+=( --cache-reuse "${CACHE_REUSE}" )
+fi
+
+# Keep the model resident in RAM. Newer builds use -lm mmap+mlock; older ones
+# use --mlock; if neither exists, skip with a note.
+if [[ "${MLOCK:-0}" == "1" ]]; then
+  if supports '--load-mode'; then
+    ARGS+=( -lm mmap+mlock )
+  elif supports '--mlock'; then
+    ARGS+=( --mlock )
+  else
+    echo "[LlamaMate] mlock not supported by this llama-server; skipping." >&2
+  fi
+fi
+
+# Separate thread count for prompt/batch processing.
+if [[ -n "${THREADS_BATCH:-}" ]] && { supports '-tb,' || supports '--threads-batch'; }; then
+  ARGS+=( -tb "${THREADS_BATCH}" )
+fi
 
 exec "$BIN" "${ARGS[@]}"

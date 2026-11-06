@@ -129,6 +129,9 @@ final class ServerManager {
     private(set) var threads = "0"
     private(set) var batchSize = "2048"
     private(set) var ubatchSize = "512"
+    private(set) var cacheReuse = "256"
+    private(set) var mlock = "0"
+    private(set) var threadsBatch = ""
     private(set) var profile = "balanced"
 
     var onStatusChange: (() -> Void)?
@@ -205,6 +208,9 @@ final class ServerManager {
         threads = config.threads
         batchSize = config.batchSize
         ubatchSize = config.ubatchSize.isEmpty ? "512" : config.ubatchSize
+        cacheReuse = config.cacheReuse
+        mlock = config.mlock
+        threadsBatch = config.threadsBatch
         profile = config.profile
         apiKey = config.apiKey
     }
