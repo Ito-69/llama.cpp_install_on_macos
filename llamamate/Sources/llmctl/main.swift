@@ -5,8 +5,10 @@ import Foundation
 
 let APP_SUPPORT_DIR = NSHomeDirectory() + "/Library/Application Support/LlamaMate"
 let INSTALL_SCRIPT_PATH = APP_SUPPORT_DIR + "/install-llama.sh"
+let START_SCRIPT_RESOURCE = APP_SUPPORT_DIR + "/llama-server-start.sh"
 let CONFIG_PATH = "\(NSHomeDirectory())/.config/llama/server.conf"
 
+@discardableResult
 func ensureSupportDir() -> Bool {
     let fm = FileManager.default
     var isDir: ObjCBool = false
@@ -21,14 +23,29 @@ func ensureSupportDir() -> Bool {
     }
 }
 
+@discardableResult
 func copyBundledScript() -> Bool {
     guard let resPath = Bundle.main.resourcePath else { return false }
-    let bundled = resPath + "/install-llama.sh"
-    guard FileManager.default.fileExists(atPath: bundled) else { return false }
     let fm = FileManager.default
+
+    // install-llama.sh (required)
+    let bundledInstaller = resPath + "/install-llama.sh"
+    guard fm.fileExists(atPath: bundledInstaller) else { return false }
+
+    // Copy the canonical start script next to install-llama.sh so that the
+    // installer's write_start_script() can reuse it instead of its embedded
+    // fallback — keeping a single source of truth.
+    let bundledStart = resPath + "/llama-server-start.sh"
+    if fm.fileExists(atPath: bundledStart) {
+        try? fm.removeItem(atPath: START_SCRIPT_RESOURCE)
+        if (try? fm.copyItem(atPath: bundledStart, toPath: START_SCRIPT_RESOURCE)) != nil {
+            try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: START_SCRIPT_RESOURCE)
+        }
+    }
+
     try? fm.removeItem(atPath: INSTALL_SCRIPT_PATH)
     do {
-        try fm.copyItem(atPath: bundled, toPath: INSTALL_SCRIPT_PATH)
+        try fm.copyItem(atPath: bundledInstaller, toPath: INSTALL_SCRIPT_PATH)
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: INSTALL_SCRIPT_PATH)
         return true
     } catch {
@@ -40,12 +57,33 @@ func isInstalled() -> Bool {
     FileManager.default.fileExists(atPath: CONFIG_PATH)
 }
 
+let INSTALLED_START_SCRIPT = NSHomeDirectory() + "/.local/bin/llama-server-start.sh"
+
+/// After an app update, an existing install still has the old
+/// ~/.local/bin/llama-server-start.sh until the user next presses Apply.
+/// If an installed start script exists and differs from the bundled canonical
+/// one, refresh it in place. The new script only takes effect on the next
+/// server start — we deliberately do not restart a running server here. If no
+/// start script exists (llama.cpp not installed), we do nothing.
+func migrateStartScriptIfOutdated() {
+    let fm = FileManager.default
+    guard fm.fileExists(atPath: INSTALLED_START_SCRIPT) else { return }
+    guard let resPath = Bundle.main.resourcePath else { return }
+    let bundled = resPath + "/llama-server-start.sh"
+    guard let bundledData = fm.contents(atPath: bundled),
+          let installedData = fm.contents(atPath: INSTALLED_START_SCRIPT) else { return }
+    if bundledData != installedData {
+        try? ConfigManager.shared.writeStartScript()
+    }
+}
+
 // MARK: - App Delegate
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         ensureSupportDir()
         copyBundledScript()
+        migrateStartScriptIfOutdated()
         _ = MenuBarController.shared
     }
 }

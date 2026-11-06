@@ -8,6 +8,24 @@ BUILD_ARM64=".build/arm64/release"
 BUILD_X86_64=".build/x86_64/release"
 UNIVERSAL_DIR=".build"
 
+# ── Guard: the embedded fallback start script inside ../install-llama.sh must
+# stay byte-identical to the canonical Resources/llama-server-start.sh.
+CANON="Resources/llama-server-start.sh"
+INSTALLER="../install-llama.sh"
+if [[ -f "$INSTALLER" && -f "$CANON" ]]; then
+  tmp_embedded="$(mktemp)"
+  awk "/<<'SCRIPT'/{f=1;next} /^SCRIPT\$/{f=0} f{print}" "$INSTALLER" > "$tmp_embedded"
+  if ! diff -q "$tmp_embedded" "$CANON" >/dev/null; then
+    echo "ERROR: embedded start script in install-llama.sh differs from $CANON" >&2
+    echo "       Keep write_start_script()'s heredoc byte-identical to the canonical file:" >&2
+    diff "$tmp_embedded" "$CANON" >&2 || true
+    rm -f "$tmp_embedded"
+    exit 1
+  fi
+  rm -f "$tmp_embedded"
+  echo "==> Start script parity check OK"
+fi
+
 echo "==> Building arm64 slice..."
 swift build -c release --triple arm64-apple-macosx13.0 --scratch-path .build/arm64 --disable-sandbox
 
@@ -23,6 +41,10 @@ cp "${UNIVERSAL_DIR}/llmctl-universal" "${APP_NAME}.app/Contents/MacOS/llmctl"
 mkdir -p "${APP_NAME}.app/Contents/Resources"
 cp Sources/llmctl/llama.png "${APP_NAME}.app/Contents/Resources/llama.png"
 cp Sources/llmctl/llama.icns "${APP_NAME}.app/Contents/Resources/llama.icns"
+
+# Bundle the canonical start script (single source of truth)
+cp Resources/llama-server-start.sh "${APP_NAME}.app/Contents/Resources/llama-server-start.sh"
+chmod +x "${APP_NAME}.app/Contents/Resources/llama-server-start.sh"
 
 # Bundle install-llama.sh for offline/portable use
 if [[ -f "../install-llama.sh" ]]; then

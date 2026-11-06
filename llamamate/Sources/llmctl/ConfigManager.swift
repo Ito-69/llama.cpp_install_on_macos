@@ -113,49 +113,40 @@ final class ConfigManager {
 
     // MARK: Start script
 
+    /// Installs the start script by copying the canonical
+    /// `llama-server-start.sh` bundled in the app's Resources. The script is a
+    /// single source of truth shared with `install-llama.sh`; it reads all of
+    /// its parameters from `server.conf` at launch, so it does not need to be
+    /// regenerated when settings change — only (re)installed.
     func writeStartScript() throws {
         try FileManager.default.createDirectory(atPath: (startScriptPath as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
-        let script = """
-        #!/usr/bin/env bash
-        set -euo pipefail
-        CONFIG="${HOME}/.config/llama/server.conf"
-        [[ -f "$CONFIG" ]] && source "$CONFIG"
 
-        TOTAL_RAM=$(sysctl -n hw.memsize 2>/dev/null || echo 0)
-        MODEL_SIZE=$(stat -f%z "${MODEL_PATH:-/dev/null}" 2>/dev/null || echo 0)
-        CTX_VAL="${CONTEXT:-8192}"
-        CTX_FACTOR=$(( CTX_VAL / 8192 ))
-        [ "$CTX_FACTOR" -lt 1 ] && CTX_FACTOR=1
-        case "${CTK:-f16}" in
-          q4_0) CTX_RAM=$(( (MODEL_SIZE / 12) * CTX_FACTOR )) ;;
-          q8_0) CTX_RAM=$(( (MODEL_SIZE / 6) * CTX_FACTOR )) ;;
-          *)    CTX_RAM=$(( (MODEL_SIZE / 3) * CTX_FACTOR )) ;;
-        esac
-        NEEDED=$(( MODEL_SIZE + CTX_RAM ))
-        if [ "$TOTAL_RAM" -gt 0 ] && [ "$NEEDED" -gt "$TOTAL_RAM" ]; then
-          NEEDED_GB=$(( NEEDED / 1073741824 ))
-          TOTAL_GB=$(( TOTAL_RAM / 1073741824 ))
-          echo "[LlamaMate] WARNING: Model needs ~${NEEDED_GB} GB RAM but system has ${TOTAL_GB} GB." >&2
-          echo "[LlamaMate] The server may be killed by macOS memory pressure." >&2
-        fi
+        guard let resPath = Bundle.main.resourcePath else {
+            throw NSError(domain: "LlamaMate", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "Could not locate app resources."])
+        }
+        let bundled = resPath + "/llama-server-start.sh"
+        guard FileManager.default.fileExists(atPath: bundled) else {
+            throw NSError(domain: "LlamaMate", code: 2,
+                          userInfo: [NSLocalizedDescriptionKey: "Bundled llama-server-start.sh is missing from the app."])
+        }
 
-        export PATH="${HOME}/.local/bin:${PATH}"
-        export DYLD_LIBRARY_PATH="${HOME}/.local/lib:${DYLD_LIBRARY_PATH:-}"
-        exec "${HOME}/.local/bin/llama-server" \\
-          -m "${MODEL_PATH}" \\
-          -c "${CONTEXT}" \\
-          --port "${PORT}" \\
-          --host "${HOST}" \\
-          -ngl "${NGL:-99}" \\
-          -fa "${FA:-1}" \\
-          -ctk "${CTK:-f16}" \\
-          -ctv "${CTV:-f16}" \\
-          -t "${THREADS:-0}" \\
-          -b "${BATCH_SIZE:-2048}" \\
-          -ub "${UBATCH_SIZE:-512}"
-        """
-        try script.write(toFile: startScriptPath, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: startScriptPath)
+        // Atomic install: stage into a temp file in the same directory, make it
+        // executable, then swap it into place — there is never a window where
+        // the start script is missing or half-written.
+        let fm = FileManager.default
+        let tmpPath = startScriptPath + ".new-\(ProcessInfo.processInfo.processIdentifier)"
+        if fm.fileExists(atPath: tmpPath) { try fm.removeItem(atPath: tmpPath) }
+        try fm.copyItem(atPath: bundled, toPath: tmpPath)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tmpPath)
+
+        if fm.fileExists(atPath: startScriptPath) {
+            _ = try fm.replaceItemAt(URL(fileURLWithPath: startScriptPath),
+                                     withItemAt: URL(fileURLWithPath: tmpPath))
+        } else {
+            try fm.moveItem(atPath: tmpPath, toPath: startScriptPath)
+        }
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: startScriptPath)
     }
 
     // MARK: Paths (read-only access)
