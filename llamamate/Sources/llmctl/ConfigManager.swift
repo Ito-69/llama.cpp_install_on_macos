@@ -10,7 +10,8 @@ struct ServerConfig {
     var modelPath = ""
     var port = "8080"
     var context = "8192"
-    var host = "0.0.0.0"
+    var host = "127.0.0.1"
+    var apiKey = ""
     var ngl = "99"
     var fa = "1"
     var ctk = "q8_0"
@@ -24,6 +25,7 @@ struct ServerConfig {
         ("PORT", \.port),
         ("CONTEXT", \.context),
         ("HOST", \.host),
+        ("API_KEY", \.apiKey),
         ("NGL", \.ngl),
         ("FA", \.fa),
         ("CTK", \.ctk),
@@ -60,6 +62,7 @@ final class ConfigManager {
             case "PORT":        config.port = raw
             case "CONTEXT":     config.context = raw
             case "HOST":        config.host = raw
+            case "API_KEY":     config.apiKey = raw
             case "NGL":         config.ngl = raw
             case "FA":          config.fa = raw
             case "CTK":         config.ctk = raw
@@ -90,6 +93,7 @@ final class ConfigManager {
         PORT=\(config.port)
         CONTEXT=\(config.context)
         HOST="\(config.host)"
+        API_KEY="\(config.apiKey)"
         NGL=\(config.ngl)
         FA=\(config.fa)
         CTK="\(config.ctk)"

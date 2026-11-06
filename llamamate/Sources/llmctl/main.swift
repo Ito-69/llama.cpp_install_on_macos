@@ -91,13 +91,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 // MARK: - Server Manager
 
+enum ServerState {
+    case stopped   // nothing listening on the port
+    case loading   // reachable but still loading the model (HTTP 503)
+    case running   // ready (HTTP 200)
+}
+
 final class ServerManager {
     static let shared = ServerManager()
 
     private let launchAgentPlist = "\(NSHomeDirectory())/Library/LaunchAgents/com.llama.cpp.server.plist"
     private let launchAgentService = "gui/\(getuid())/com.llama.cpp.server"
+    private let workQueue = DispatchQueue(label: "com.llamamate.server.control")
+    private let healthSession: URLSession = {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.timeoutIntervalForRequest = 2
+        cfg.timeoutIntervalForResource = 2
+        cfg.waitsForConnectivity = false
+        return URLSession(configuration: cfg)
+    }()
 
-    private(set) var isRunning = false
+    private(set) var state: ServerState = .stopped
+    var isRunning: Bool { state == .running }
+    private(set) var apiKey = ""
     private(set) var modelLabel = ""
     private(set) var modelRepo = ""
     private(set) var modelFile = ""
@@ -189,38 +205,53 @@ final class ServerManager {
         batchSize = config.batchSize
         ubatchSize = config.ubatchSize.isEmpty ? "512" : config.ubatchSize
         profile = config.profile
+        apiKey = config.apiKey
     }
 
+    /// Polls the server's /health endpoint off the main thread and reports the
+    /// resulting state. /health is unauthenticated in llama.cpp, so this works
+    /// regardless of whether an API key is configured. onStatusChange fires on
+    /// the main thread only when the state actually changes.
     func checkStatus() {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
-        task.arguments = ["-f", "llama-server"]
-        task.standardOutput = FileHandle.nullDevice
-        task.standardError = FileHandle.nullDevice
-        try? task.run()
-        task.waitUntilExit()
-        isRunning = task.terminationStatus == 0
-        onStatusChange?()
+        guard let url = URL(string: "http://127.0.0.1:\(port)/health") else { return }
+        let task = healthSession.dataTask(with: url) { [weak self] _, response, _ in
+            guard let self = self else { return }
+            let newState: ServerState
+            if let http = response as? HTTPURLResponse {
+                newState = (http.statusCode == 200) ? .running : .loading
+            } else {
+                newState = .stopped
+            }
+            guard newState != self.state else { return }
+            self.state = newState
+            DispatchQueue.main.async { self.onStatusChange?() }
+        }
+        task.resume()
     }
 
     func startServer() {
-        launchctl("bootstrap", "gui/\(getuid())", launchAgentPlist)
-        launchctl("enable", launchAgentService)
-        launchctl("kickstart", launchAgentService)
+        workQueue.async {
+            self.launchctl("bootstrap", "gui/\(getuid())", self.launchAgentPlist)
+            self.launchctl("enable", self.launchAgentService)
+            self.launchctl("kickstart", self.launchAgentService)
+        }
     }
 
     func stopServer() {
-        launchctl("bootout", launchAgentService)
+        workQueue.async {
+            self.launchctl("bootout", self.launchAgentService)
+        }
     }
 
     func restartServer() {
-        launchctl("kickstart", "-k", launchAgentService)
+        workQueue.async {
+            self.launchctl("kickstart", "-k", self.launchAgentService)
+        }
     }
 
     func reloadConfigAndRestart() {
         loadConfig()
         restartServer()
-        checkStatus()
     }
 
     private func launchctl(_ args: String...) {
@@ -513,10 +544,9 @@ final class AppUpdateManager {
         }
     }
 
-    private func isInstalledViaHomebrew() -> Bool {
+    func isInstalledViaHomebrew() -> Bool {
         let fm = FileManager.default
         let paths = [
-            NSHomeDirectory() + "/.homebrew",
             "/opt/homebrew/Caskroom/llamamate",
             "/usr/local/Caskroom/llamamate"
         ]
@@ -705,23 +735,27 @@ final class OutputWindowController: NSObject, NSWindowDelegate {
 
 // MARK: - Menu Bar Controller
 
-final class MenuBarController: NSObject {
+final class MenuBarController: NSObject, NSMenuDelegate {
     static let shared = MenuBarController()
 
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let server = ServerManager.shared
+    private let menu = NSMenu()
     private var pollTimer: Timer?
 
     override init() {
         super.init()
 
-        statusItem.button?.image = icon(running: false, updateAvailable: false)
+        menu.delegate = self
+        statusItem.menu = menu
+        updateIcon()
 
+        // Status changes only repaint the icon; the menu is rebuilt lazily when
+        // it is about to open (menuNeedsUpdate), not on every poll.
         server.onStatusChange = { [weak self] in
-            DispatchQueue.main.async { self?.refresh() }
+            DispatchQueue.main.async { self?.updateIcon() }
         }
 
-        refresh()
         server.checkStatus()
 
         pollTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
@@ -745,11 +779,20 @@ final class MenuBarController: NSObject {
 
     func setUpdateAvailable(_ available: Bool) {
         updateAvailable = available
-        refresh()
+        updateIcon()
     }
 
-    private func icon(running: Bool, updateAvailable: Bool) -> NSImage {
-        let fraction: CGFloat = running ? 1.0 : 0.35
+    private func updateIcon() {
+        statusItem.button?.image = icon(state: server.state, updateAvailable: updateAvailable)
+    }
+
+    private func icon(state: ServerState, updateAvailable: Bool) -> NSImage {
+        let fraction: CGFloat
+        switch state {
+        case .running: fraction = 1.0
+        case .loading: fraction = 0.6
+        case .stopped: fraction = 0.35
+        }
         let img = NSImage(size: NSSize(width: 20, height: 20))
         img.lockFocusFlipped(false)
         llamaImage.draw(in: NSRect(x: 0, y: 0, width: 20, height: 20),
@@ -768,16 +811,18 @@ final class MenuBarController: NSObject {
 
     // MARK: Menu
 
-    private func refresh() {
-        statusItem.button?.image = icon(running: server.isRunning, updateAvailable: updateAvailable)
-
-        let menu = NSMenu()
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        updateIcon()
+        menu.removeAllItems()
 
         // Title
-        let title = NSMenuItem(title: server.isRunning
-                               ? "llama.cpp — running"
-                               : "llama.cpp — stopped",
-                               action: nil, keyEquivalent: "")
+        let titleText: String
+        switch server.state {
+        case .running: titleText = "llama.cpp — running"
+        case .loading: titleText = "llama.cpp — loading model…"
+        case .stopped: titleText = "llama.cpp — stopped"
+        }
+        let title = NSMenuItem(title: titleText, action: nil, keyEquivalent: "")
         title.isEnabled = false
         menu.addItem(title)
 
@@ -796,8 +841,8 @@ final class MenuBarController: NSObject {
         web.image = NSImage(systemSymbolName: "globe", accessibilityDescription: nil)
         menu.addItem(web)
 
-        // Start / Stop / Restart
-        if server.isRunning {
+        // Start / Stop / Restart — treat "loading" like an active server.
+        if server.state != .stopped {
             let restart = NSMenuItem(title: "Restart Server", action: #selector(restartServer), keyEquivalent: "r")
             restart.target = self
             restart.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: nil)
@@ -876,8 +921,6 @@ final class MenuBarController: NSObject {
         let quit = NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
-
-        statusItem.menu = menu
     }
 
     // MARK: Actions
@@ -954,7 +997,7 @@ final class MenuBarController: NSObject {
             alert.addButton(withTitle: "OK")
             alert.runModal()
         }
-        refresh()
+        // The Launch-at-Login checkmark is rebuilt the next time the menu opens.
     }
 
     @objc private func uninstallAll() {
@@ -1002,9 +1045,18 @@ final class MenuBarController: NSObject {
         // Remove app support
         try? fm.removeItem(atPath: APP_SUPPORT_DIR)
 
-        // Remove models
+        // Remove models — only GGUF files we may have downloaded, never the
+        // whole directory (the user may keep their own files there).
         if removeModels {
-            try? fm.removeItem(atPath: home + "/models")
+            let modelsDir = home + "/models"
+            if let items = try? fm.contentsOfDirectory(atPath: modelsDir) {
+                for name in items where name.hasSuffix(".gguf") || name.hasSuffix(".gguf.download") {
+                    try? fm.removeItem(atPath: modelsDir + "/" + name)
+                }
+                if let remaining = try? fm.contentsOfDirectory(atPath: modelsDir), remaining.isEmpty {
+                    try? fm.removeItem(atPath: modelsDir)
+                }
+            }
         }
 
         // Remove shell RC entries
@@ -1024,16 +1076,29 @@ final class MenuBarController: NSObject {
         // Show completion
         let done = NSAlert()
         done.messageText = "Uninstall Complete"
-        done.informativeText = "llama.cpp and all related files have been removed.\n\nThe app will now quit and remove itself from /Applications."
-        done.addButton(withTitle: "OK")
-        done.runModal()
+        if AppUpdateManager.shared.isInstalledViaHomebrew() {
+            // Never delete a Homebrew-managed app bundle — that corrupts the
+            // Caskroom. Point the user at the correct command instead.
+            let command = "brew uninstall --cask llamamate"
+            done.informativeText = "llama.cpp and its data have been removed.\n\nLlamaMate was installed with Homebrew, so finish removing the app from Terminal:\n\n\(command)\n\nThe app will now quit."
+            done.addButton(withTitle: "Copy Command")
+            done.addButton(withTitle: "OK")
+            if done.runModal() == .alertFirstButtonReturn {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(command, forType: .string)
+            }
+        } else {
+            done.informativeText = "llama.cpp and all related files have been removed.\n\nThe app will now quit and remove itself from /Applications."
+            done.addButton(withTitle: "OK")
+            done.runModal()
 
-        // Self-destruct: remove the .app bundle after quitting
-        let bundlePath = Bundle.main.bundlePath
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/bin/sh")
-        task.arguments = ["-c", "(sleep 1; rm -rf \"\(bundlePath)\") &"]
-        try? task.run()
+            // Self-destruct: remove the .app bundle after quitting (non-Homebrew only).
+            let bundlePath = Bundle.main.bundlePath
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/bin/sh")
+            task.arguments = ["-c", "(sleep 1; rm -rf \"\(bundlePath)\") &"]
+            try? task.run()
+        }
 
         NSApplication.shared.terminate(nil)
     }

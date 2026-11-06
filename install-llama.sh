@@ -75,7 +75,8 @@ SHELL_RCS=()
 
 PORT=8080
 CONTEXT=8192
-HOST="0.0.0.0"
+HOST="127.0.0.1"
+API_KEY="${API_KEY:-}"
 MODE_UPDATE=0
 MODE_STATUS=0
 MODE_CHECK_UPDATE=0
@@ -270,6 +271,7 @@ MODEL_PATH="${MODEL_PATH}"
 PORT=${PORT}
 CONTEXT=${CONTEXT}
 HOST="${HOST}"
+API_KEY="${API_KEY:-}"
 NGL=${NGL:-99}
 FA=${FA:-1}
 CTK="${CTK:-q8_0}"
@@ -1172,7 +1174,7 @@ ARGS=(
   -m "${MODEL_PATH}"
   -c "${CTX_VAL}"
   --port "${PORT:-8080}"
-  --host "${HOST:-0.0.0.0}"
+  --host "${HOST:-127.0.0.1}"
   -ngl "${NGL:-99}"
   -fa "${FA_VAL}"
   -t "${THREADS:-0}"
@@ -1183,6 +1185,11 @@ ARGS=(
 # KV cache type flags, only if this build understands them.
 if supports '--cache-type-k' || supports '-ctk,'; then
   ARGS+=( -ctk "${CTK_VAL}" -ctv "${CTV_VAL}" )
+fi
+
+# API key, only if one is configured and the binary supports it.
+if [[ -n "${API_KEY:-}" ]] && supports '--api-key'; then
+  ARGS+=( --api-key "${API_KEY}" )
 fi
 
 # NOTE (Phase 3b): optional perf flags (--cache-reuse, -tb, mlock via -lm/--mlock)

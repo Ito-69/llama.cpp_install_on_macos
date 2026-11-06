@@ -63,7 +63,7 @@ ARGS=(
   -m "${MODEL_PATH}"
   -c "${CTX_VAL}"
   --port "${PORT:-8080}"
-  --host "${HOST:-0.0.0.0}"
+  --host "${HOST:-127.0.0.1}"
   -ngl "${NGL:-99}"
   -fa "${FA_VAL}"
   -t "${THREADS:-0}"
@@ -74,6 +74,11 @@ ARGS=(
 # KV cache type flags, only if this build understands them.
 if supports '--cache-type-k' || supports '-ctk,'; then
   ARGS+=( -ctk "${CTK_VAL}" -ctv "${CTV_VAL}" )
+fi
+
+# API key, only if one is configured and the binary supports it.
+if [[ -n "${API_KEY:-}" ]] && supports '--api-key'; then
+  ARGS+=( --api-key "${API_KEY}" )
 fi
 
 # NOTE (Phase 3b): optional perf flags (--cache-reuse, -tb, mlock via -lm/--mlock)
