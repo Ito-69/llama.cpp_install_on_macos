@@ -28,6 +28,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var lastSelfCpuTime: Double = 0
     private var lastSelfSampleTime: TimeInterval = 0
     private var previousContextValue = "8192"
+    private var originalHost = "127.0.0.1"
 
     static let standardContextValues = [
         "2048",
@@ -317,9 +318,23 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         batchField.stringValue = sm.batchSize == "2048" ? "" : sm.batchSize
         portField.stringValue = sm.port
 
-        // Reflect the current bind address without changing it: an existing
-        // 0.0.0.0 config shows LAN as enabled.
-        lanCheckbox.state = (sm.host == "0.0.0.0") ? .on : .off
+        // Reflect the current bind address without changing it.
+        originalHost = sm.host
+        lanCheckbox.isEnabled = true
+        lanCheckbox.title = "Allow access from local network"
+        lanCheckbox.toolTip = "Off: the server binds 127.0.0.1 (this Mac only). On: it binds 0.0.0.0 and is reachable from other devices on your network."
+        switch sm.host {
+        case "0.0.0.0":
+            lanCheckbox.state = .on
+        case "127.0.0.1", "localhost", "":
+            lanCheckbox.state = .off
+        default:
+            // A custom host — don't offer to flip it; preserve it on Apply.
+            lanCheckbox.state = .off
+            lanCheckbox.isEnabled = false
+            lanCheckbox.title = "Custom host: \(sm.host)"
+            lanCheckbox.toolTip = "server.conf sets a custom host (\(sm.host)); it is left unchanged."
+        }
         apiKeyField.stringValue = sm.apiKey
 
         applyFaCacheGuard()
@@ -422,7 +437,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     }
 
     private func currentHost() -> String {
-        lanCheckbox.state == .on ? "0.0.0.0" : "127.0.0.1"
+        // A disabled checkbox means the config holds a custom host we preserve.
+        if !lanCheckbox.isEnabled { return originalHost }
+        return lanCheckbox.state == .on ? "0.0.0.0" : "127.0.0.1"
     }
 
     private func currentApiKey() -> String {

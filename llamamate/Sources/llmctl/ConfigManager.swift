@@ -105,6 +105,8 @@ final class ConfigManager {
         """
         try FileManager.default.createDirectory(atPath: (configPath as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
         try content.write(toFile: configPath, atomically: true, encoding: .utf8)
+        // server.conf may hold an API key — keep it owner-only.
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configPath)
         try writeStartScript()
     }
 

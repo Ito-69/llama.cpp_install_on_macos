@@ -281,6 +281,8 @@ BATCH_SIZE=${BATCH_SIZE:-2048}
 UBATCH_SIZE=${UBATCH_SIZE:-512}
 PROFILE="${PROFILE:-balanced}"
 EOF
+  # May contain an API key — keep it owner-only.
+  chmod 600 "$CONFIG_FILE" 2>/dev/null || true
 }
 
 apply_model_preset() {
@@ -931,19 +933,25 @@ download_model() {
 # ── LAN IP (for local network access) ──────────────────────────────────────────
 print_network_info() {
   local ip=""
-  for iface in en0 en1; do
-    ip="$(ipconfig getifaddr "$iface" 2>/dev/null || true)"
-    [[ -n "$ip" ]] && break
-  done
   echo ""
-  ok "Server listening on all interfaces (local network)"
-  echo -e "  ${GREEN}WebUI:${NC}    http://127.0.0.1:${PORT}"
-  echo -e "  ${GREEN}API:${NC}      http://127.0.0.1:${PORT}/v1"
-  if [[ -n "$ip" ]]; then
-    echo -e "  ${GREEN}LAN WebUI:${NC} http://${ip}:${PORT}"
-    echo -e "  ${GREEN}LAN API:${NC}   http://${ip}:${PORT}/v1"
+  if [[ "${HOST}" == "0.0.0.0" ]]; then
+    for iface in en0 en1; do
+      ip="$(ipconfig getifaddr "$iface" 2>/dev/null || true)"
+      [[ -n "$ip" ]] && break
+    done
+    ok "Server listening on all interfaces (local network)"
+    echo -e "  ${GREEN}WebUI:${NC}    http://127.0.0.1:${PORT}"
+    echo -e "  ${GREEN}API:${NC}      http://127.0.0.1:${PORT}/v1"
+    if [[ -n "$ip" ]]; then
+      echo -e "  ${GREEN}LAN WebUI:${NC} http://${ip}:${PORT}"
+      echo -e "  ${GREEN}LAN API:${NC}   http://${ip}:${PORT}/v1"
+    fi
+  else
+    ok "Server listening on ${HOST} only (this Mac)"
+    echo -e "  ${GREEN}WebUI:${NC}    http://127.0.0.1:${PORT}"
+    echo -e "  ${GREEN}API:${NC}      http://127.0.0.1:${PORT}/v1"
   fi
-  print_test_instructions "$ip"
+  print_test_instructions "127.0.0.1"
 }
 
 print_test_instructions() {
@@ -1187,9 +1195,17 @@ if supports '--cache-type-k' || supports '-ctk,'; then
   ARGS+=( -ctk "${CTK_VAL}" -ctv "${CTV_VAL}" )
 fi
 
-# API key, only if one is configured and the binary supports it.
-if [[ -n "${API_KEY:-}" ]] && supports '--api-key'; then
-  ARGS+=( --api-key "${API_KEY}" )
+# API key, only if one is configured. Prefer --api-key-file (keeps the secret
+# out of the process argument list) and fall back to --api-key.
+if [[ -n "${API_KEY:-}" ]]; then
+  if supports '--api-key-file'; then
+    KEY_FILE="${HOME}/.config/llama/api_key"
+    mkdir -p "$(dirname "$KEY_FILE")"
+    ( umask 077; printf '%s\n' "${API_KEY}" > "$KEY_FILE" )
+    ARGS+=( --api-key-file "$KEY_FILE" )
+  elif supports '--api-key'; then
+    ARGS+=( --api-key "${API_KEY}" )
+  fi
 fi
 
 # NOTE (Phase 3b): optional perf flags (--cache-reuse, -tb, mlock via -lm/--mlock)

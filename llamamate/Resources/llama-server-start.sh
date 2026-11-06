@@ -76,9 +76,17 @@ if supports '--cache-type-k' || supports '-ctk,'; then
   ARGS+=( -ctk "${CTK_VAL}" -ctv "${CTV_VAL}" )
 fi
 
-# API key, only if one is configured and the binary supports it.
-if [[ -n "${API_KEY:-}" ]] && supports '--api-key'; then
-  ARGS+=( --api-key "${API_KEY}" )
+# API key, only if one is configured. Prefer --api-key-file (keeps the secret
+# out of the process argument list) and fall back to --api-key.
+if [[ -n "${API_KEY:-}" ]]; then
+  if supports '--api-key-file'; then
+    KEY_FILE="${HOME}/.config/llama/api_key"
+    mkdir -p "$(dirname "$KEY_FILE")"
+    ( umask 077; printf '%s\n' "${API_KEY}" > "$KEY_FILE" )
+    ARGS+=( --api-key-file "$KEY_FILE" )
+  elif supports '--api-key'; then
+    ARGS+=( --api-key "${API_KEY}" )
+  fi
 fi
 
 # NOTE (Phase 3b): optional perf flags (--cache-reuse, -tb, mlock via -lm/--mlock)

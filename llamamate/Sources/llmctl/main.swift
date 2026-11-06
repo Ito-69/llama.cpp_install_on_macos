@@ -112,6 +112,7 @@ final class ServerManager {
     }()
 
     private(set) var state: ServerState = .stopped
+    private(set) var portBusy = false
     var isRunning: Bool { state == .running }
     private(set) var apiKey = ""
     private(set) var modelLabel = ""
@@ -216,15 +217,24 @@ final class ServerManager {
         guard let url = URL(string: "http://127.0.0.1:\(port)/health") else { return }
         let task = healthSession.dataTask(with: url) { [weak self] _, response, _ in
             guard let self = self else { return }
+            // Classify off-main, then mutate/read all shared state on main only.
             let newState: ServerState
+            let busy: Bool
             if let http = response as? HTTPURLResponse {
-                newState = (http.statusCode == 200) ? .running : .loading
+                switch http.statusCode {
+                case 200: newState = .running; busy = false
+                case 503: newState = .loading; busy = false
+                default:  newState = .stopped; busy = true   // some other app answers on this port
+                }
             } else {
-                newState = .stopped
+                newState = .stopped; busy = false
             }
-            guard newState != self.state else { return }
-            self.state = newState
-            DispatchQueue.main.async { self.onStatusChange?() }
+            DispatchQueue.main.async {
+                let changed = (newState != self.state) || (busy != self.portBusy)
+                self.state = newState
+                self.portBusy = busy
+                if changed { self.onStatusChange?() }
+            }
         }
         task.resume()
     }
@@ -817,10 +827,14 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
         // Title
         let titleText: String
-        switch server.state {
-        case .running: titleText = "llama.cpp — running"
-        case .loading: titleText = "llama.cpp — loading model…"
-        case .stopped: titleText = "llama.cpp — stopped"
+        if server.portBusy {
+            titleText = "Port \(server.port) is used by another app"
+        } else {
+            switch server.state {
+            case .running: titleText = "llama.cpp — running"
+            case .loading: titleText = "llama.cpp — loading model…"
+            case .stopped: titleText = "llama.cpp — stopped"
+            }
         }
         let title = NSMenuItem(title: titleText, action: nil, keyEquivalent: "")
         title.isEnabled = false

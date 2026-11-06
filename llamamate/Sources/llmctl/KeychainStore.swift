@@ -69,9 +69,15 @@ enum KeychainStore {
     static func migrateHFTokenFromDefaultsIfNeeded() {
         let defaults = UserDefaults.standard
         guard let legacy = defaults.string(forKey: hfTokenAccount), !legacy.isEmpty else { return }
-        if get(hfTokenAccount) == nil {
-            set(legacy, account: hfTokenAccount)
+        // Already in the Keychain: just drop the plaintext copy.
+        if get(hfTokenAccount) != nil {
+            defaults.removeObject(forKey: hfTokenAccount)
+            return
         }
-        defaults.removeObject(forKey: hfTokenAccount)
+        // Only remove the UserDefaults copy once the Keychain write succeeds,
+        // so a failure never loses the token.
+        if set(legacy, account: hfTokenAccount) {
+            defaults.removeObject(forKey: hfTokenAccount)
+        }
     }
 }
