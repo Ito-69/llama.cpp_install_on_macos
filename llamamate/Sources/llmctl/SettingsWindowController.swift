@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import Metal
 import Security
 
 final class SettingsWindowController: NSObject, NSWindowDelegate {
@@ -530,24 +531,18 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     // MARK: RAM estimate
 
+    /// Bytes per KV-cache element for a cache type.
+    private func kvBytesPerElement(_ t: String) -> Double {
+        switch t {
+        case "q4_0": return 0.5625   // 4.5 bits
+        case "q8_0": return 1.0625   // 8.5 bits
+        default:     return 2.0      // f16
+        }
+    }
+
     private func updateRamEstimate() {
         let sm = ServerManager.shared
         let modelSize = (try? FileManager.default.attributesOfItem(atPath: sm.modelPath)[.size] as? Int64) ?? 0
-        let totalRAM = ProcessInfo.processInfo.physicalMemory
-        let modelGB = Double(modelSize) / 1_000_000_000.0
-        // Rough KV cache: ~30% of model size at 8192, scaling with context and KV quantization
-        let ctxVal = Int(currentContext()) ?? 8192
-        let ctxFactor = Double(ctxVal) / 8192.0
-        let cacheType = currentCtk()
-        let cacheFactor: Double
-        switch cacheType {
-        case "q4_0": cacheFactor = 0.25
-        case "q8_0": cacheFactor = 0.5
-        default:     cacheFactor = 1.0
-        }
-        let ctxGB = modelGB * 0.3 * ctxFactor * cacheFactor
-        let neededGB = modelGB + ctxGB
-        let availGB = Double(totalRAM) / 1_000_000_000.0
 
         if modelSize == 0 {
             ramLabel.stringValue = "No active model detected. Set a model in the Models window first."
@@ -555,15 +550,54 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             return
         }
 
+        let modelGB = Double(modelSize) / 1_000_000_000.0
+        let ctxVal = Int(currentContext()) ?? 8192
+        let cacheType = currentCtk()
+
+        // "Available" for a GPU-offloaded model is the Metal working-set budget
+        // (Metal only gets a fraction of RAM), falling back to 70% of physical.
+        let availBytes: Double
+        if let dev = MTLCreateSystemDefaultDevice(), dev.recommendedMaxWorkingSetSize > 0 {
+            availBytes = Double(dev.recommendedMaxWorkingSetSize)
+        } else {
+            availBytes = Double(ProcessInfo.processInfo.physicalMemory) * 0.70
+        }
+        let availGB = availBytes / 1_000_000_000.0
+
+        // Precise KV-cache size from the GGUF header when we can read it.
+        var ctxGB: Double
+        var approx: Bool
+        var modelCtx: Int? = nil
+        if let meta = GGUFInfo.read(path: sm.modelPath), meta.isComplete,
+           let nLayer = meta.blockCount, let nKV = meta.headCountKV, let kDim = meta.effectiveKeyLength {
+            let kvBytes = 2.0 * Double(nLayer) * Double(nKV) * Double(kDim) * Double(ctxVal) * kvBytesPerElement(cacheType)
+            ctxGB = kvBytes / 1_000_000_000.0
+            approx = false
+            modelCtx = meta.contextLength
+        } else {
+            // Fallback: the old heuristic (~30% of model at 8k), clearly marked.
+            let ctxFactor = Double(ctxVal) / 8192.0
+            let cacheFactor: Double = (cacheType == "q4_0") ? 0.25 : (cacheType == "q8_0" ? 0.5 : 1.0)
+            ctxGB = modelGB * 0.3 * ctxFactor * cacheFactor
+            approx = true
+        }
+
+        let neededGB = modelGB + ctxGB
+        let suffix = approx ? " (approx.)" : ""
+        var ctxWarn = ""
+        if let mc = modelCtx, ctxVal > mc {
+            ctxWarn = String(format: "  ⚠︎ context %d exceeds model max %d", ctxVal, mc)
+        }
+
         if neededGB > availGB {
-            ramLabel.stringValue = String(format: "⚠️  ~%.1f GB needed, %.0f GB available — may crash or swap!", neededGB, availGB)
+            ramLabel.stringValue = String(format: "⚠️  ~%.1f GB needed, %.0f GB available — may crash or swap!%@%@", neededGB, availGB, suffix, ctxWarn)
             ramLabel.textColor = .systemRed
         } else if neededGB > availGB * 0.8 {
-            ramLabel.stringValue = String(format: "⚠️  ~%.1f GB needed, %.0f GB available — close other apps", neededGB, availGB)
+            ramLabel.stringValue = String(format: "⚠️  ~%.1f GB needed, %.0f GB available — close other apps%@%@", neededGB, availGB, suffix, ctxWarn)
             ramLabel.textColor = .systemOrange
         } else {
-            ramLabel.stringValue = String(format: "%.1f GB model + %.1f GB ctx ≈ %.1f GB needed, %.0f GB available ✓", modelGB, ctxGB, neededGB, availGB)
-            ramLabel.textColor = .secondaryLabelColor
+            ramLabel.stringValue = String(format: "%.1f GB model + %.1f GB ctx ≈ %.1f GB needed, %.0f GB available ✓%@%@", modelGB, ctxGB, neededGB, availGB, suffix, ctxWarn)
+            ramLabel.textColor = ctxWarn.isEmpty ? .secondaryLabelColor : .systemOrange
         }
     }
 
@@ -676,7 +710,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                 parts.append(String(format: "LlamaMate: %.1f%% CPU · %.1f MB RAM", selfCpu, Double(selfMem) / 1_000_000.0))
 
                 if let server = serverUsage {
-                    let gpuText = gpu != nil ? String(format: " · GPU %.0f%%", gpu!) : ""
+                    // ioreg "Device Utilization %" is not exposed on every GPU,
+                    // so label it approximate and omit it when unavailable.
+                    let gpuText = gpu != nil ? String(format: " · GPU ~%.0f%% (approx)", gpu!) : ""
                     parts.append(String(format: "llama-server: %.1f%% CPU · %.1f MB RAM%@", server.cpu, server.ramMB, gpuText))
                 } else {
                     parts.append("llama-server: not running")

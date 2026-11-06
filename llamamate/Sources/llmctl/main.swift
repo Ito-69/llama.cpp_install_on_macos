@@ -342,29 +342,54 @@ func runProcess(executable: String, arguments: [String], currentDirectory: Strin
     var fullOutput = ""
     let lock = NSLock()
 
-    outHandle.readabilityHandler = { handle in
-        let data = handle.availableData
-        guard !data.isEmpty, let s = String(data: data, encoding: .utf8) else { return }
-        lock.lock(); fullOutput += s; lock.unlock()
-        outputCallback?(s)
+    // Per-stream byte buffers so a multi-byte UTF-8 character split across two
+    // reads isn't turned into garbage; we only emit the complete prefix and
+    // hold the incomplete tail for the next chunk.
+    var outBuf = Data(), errBuf = Data()
+
+    func decodeReady(_ buf: inout Data) -> String {
+        guard !buf.isEmpty else { return "" }
+        let maxDrop = min(3, buf.count) // a UTF-8 sequence is at most 4 bytes
+        for drop in 0...maxDrop {
+            let take = buf.count - drop
+            if let s = String(data: buf.prefix(take), encoding: .utf8) {
+                buf.removeFirst(take)
+                return s // valid prefix; any 1–3 byte incomplete tail is kept
+            }
+        }
+        // Dropping up to 3 bytes still fails → the bad byte is in the middle,
+        // not an incomplete tail. Decode lossily and clear so output never
+        // stalls and the buffer can't grow until the process exits.
+        let s = String(decoding: buf, as: UTF8.self)
+        buf.removeAll(keepingCapacity: true)
+        return s
     }
 
-    errHandle.readabilityHandler = { handle in
+    func pump(_ handle: FileHandle, _ buf: inout Data) {
         let data = handle.availableData
-        guard !data.isEmpty, let s = String(data: data, encoding: .utf8) else { return }
-        lock.lock(); fullOutput += s; lock.unlock()
-        outputCallback?(s)
+        guard !data.isEmpty else { return }
+        lock.lock()
+        buf.append(data)
+        let s = decodeReady(&buf)
+        if !s.isEmpty { fullOutput += s }
+        lock.unlock()
+        if !s.isEmpty { outputCallback?(s) }
     }
+
+    outHandle.readabilityHandler = { h in pump(h, &outBuf) }
+    errHandle.readabilityHandler = { h in pump(h, &errBuf) }
 
     task.waitUntilExit()
     outHandle.readabilityHandler = nil
     errHandle.readabilityHandler = nil
 
-    for handle in [outHandle, errHandle] {
-        if let rest = String(data: handle.readDataToEndOfFile(), encoding: .utf8), !rest.isEmpty {
-            lock.lock(); fullOutput += rest; lock.unlock()
-            outputCallback?(rest)
-        }
+    // Drain whatever is left and flush any trailing bytes (lossily, in case the
+    // stream genuinely ended mid-sequence).
+    outBuf.append(outHandle.readDataToEndOfFile())
+    errBuf.append(errHandle.readDataToEndOfFile())
+    for buf in [outBuf, errBuf] where !buf.isEmpty {
+        let rest = String(decoding: buf, as: UTF8.self)
+        if !rest.isEmpty { lock.lock(); fullOutput += rest; lock.unlock(); outputCallback?(rest) }
     }
 
     return (task.terminationStatus, fullOutput)

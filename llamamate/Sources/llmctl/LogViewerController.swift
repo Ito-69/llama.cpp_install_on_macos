@@ -13,8 +13,13 @@ final class LogViewerController: NSObject, NSWindowDelegate {
 
     private override init() { super.init() }
 
+    // Remember what we last rendered so the timer only redraws on change.
+    private var lastSignature = ""
+
     func showWindow() {
         if window == nil { buildWindow() }
+        refreshTimer?.invalidate()   // never stack timers across reopens
+        lastSignature = ""
         refresh()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.refresh()
@@ -77,13 +82,40 @@ final class LogViewerController: NSObject, NSWindowDelegate {
         window = w
     }
 
+    /// Reads only the last `maxBytes` of a possibly-huge log via a seek, and
+    /// starts decoding at the first newline after the offset so a multi-byte
+    /// UTF-8 character is never cut in half.
     private func readTailed(_ path: String, maxBytes: Int = 256_000) -> String {
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else { return "" }
-        let trimmed = data.count > maxBytes ? data.suffix(maxBytes) : data
-        return String(data: trimmed, encoding: .utf8) ?? ""
+        guard let handle = FileHandle(forReadingAtPath: path) else { return "" }
+        defer { try? handle.close() }
+        let end = handle.seekToEndOfFile()
+        var start: UInt64 = 0
+        var trimmed = false
+        if end > UInt64(maxBytes) {
+            start = end - UInt64(maxBytes)
+            trimmed = true
+        }
+        handle.seek(toFileOffset: start)
+        guard var data = try? handle.readToEnd() else { return "" }
+        if trimmed, let nl = data.firstIndex(of: 0x0A) {
+            data = data.suffix(from: data.index(after: nl))
+        }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// Cheap change signature: size + mtime of both logs.
+    private func fileSignature(_ path: String) -> String {
+        guard let a = try? FileManager.default.attributesOfItem(atPath: path) else { return "-" }
+        let size = (a[.size] as? Int) ?? 0
+        let mtime = (a[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+        return "\(size):\(mtime)"
     }
 
     private func refresh() {
+        let sig = fileSignature(logPath) + "|" + fileSignature(errPath)
+        if sig == lastSignature { return } // nothing changed since last draw
+        lastSignature = sig
+
         let main = readTailed(logPath)
         let err = readTailed(errPath)
         var combined = ""
@@ -94,7 +126,7 @@ final class LogViewerController: NSObject, NSWindowDelegate {
         textView.scrollToEndOfDocument(nil)
     }
 
-    @objc private func refreshClicked() { refresh() }
+    @objc private func refreshClicked() { lastSignature = ""; refresh() }
 
     @objc private func openFolderClicked() {
         let dir = NSHomeDirectory() + "/Library/Logs"
