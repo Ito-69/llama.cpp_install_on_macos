@@ -80,6 +80,8 @@ API_KEY="${API_KEY:-}"
 CACHE_REUSE="${CACHE_REUSE:-256}"
 MLOCK="${MLOCK:-0}"
 THREADS_BATCH="${THREADS_BATCH:-}"
+REASONING_EFFORT="${REASONING_EFFORT:-default}"
+REASONING_BUDGET="${REASONING_BUDGET:-}"
 MODE_UPDATE=0
 MODE_STATUS=0
 MODE_CHECK_UPDATE=0
@@ -299,6 +301,11 @@ save_config() {
   san_num CACHE_REUSE 256
   san_num MLOCK 0
   san_num THREADS_BATCH ""
+  san_num REASONING_BUDGET ""
+  case "${REASONING_EFFORT:-default}" in
+    default | minimal | low | medium | high | xhigh | max) ;;
+    *) warn "Invalid REASONING_EFFORT='${REASONING_EFFORT}'; using default"; REASONING_EFFORT="default" ;;
+  esac
 
   # Every field is written quoted and escaped so a re-`source` can never
   # execute embedded shell.
@@ -323,6 +330,8 @@ UBATCH_SIZE="$(sh_escape "${UBATCH_SIZE:-512}")"
 CACHE_REUSE="$(sh_escape "${CACHE_REUSE:-256}")"
 MLOCK="$(sh_escape "${MLOCK:-0}")"
 THREADS_BATCH="$(sh_escape "${THREADS_BATCH:-}")"
+REASONING_EFFORT="$(sh_escape "${REASONING_EFFORT:-default}")"
+REASONING_BUDGET="$(sh_escape "${REASONING_BUDGET:-}")"
 PROFILE="$(sh_escape "${PROFILE:-balanced}")"
 EOF
   # May contain an API key — keep it owner-only.
@@ -1199,6 +1208,7 @@ san BATCH_SIZE 2048
 san UBATCH_SIZE 512
 san CACHE_REUSE 256
 san THREADS_BATCH ""
+san REASONING_BUDGET ""
 
 # ── Effective values (with defaults) ─────────────────────────────────────────
 FA_VAL="${FA:-1}"
@@ -1297,6 +1307,37 @@ fi
 # Separate thread count for prompt/batch processing.
 if [[ -n "${THREADS_BATCH:-}" ]] && { supports '-tb,' || supports '--threads-batch'; }; then
   ARGS+=( -tb "${THREADS_BATCH}" )
+fi
+
+# ── Reasoning controls ───────────────────────────────────────────────────────
+# Effort level is handed to the model's chat template; it only has an effect on
+# models whose template understands it (e.g. gpt-oss). "default" = don't pass.
+case "${REASONING_EFFORT:-default}" in
+  "" | default) ;;
+  minimal | low | medium | high | xhigh | max)
+    if supports '--reasoning-effort'; then
+      ARGS+=( --reasoning-effort "${REASONING_EFFORT}" )
+    else
+      echo "[LlamaMate] --reasoning-effort not supported by this llama-server; update llama.cpp. Skipping." >&2
+    fi
+    ;;
+  *)
+    echo "[LlamaMate] Invalid REASONING_EFFORT='${REASONING_EFFORT}' in server.conf; ignoring." >&2
+    ;;
+esac
+
+# Thinking token limit — works for any thinking model (Qwen3, DeepSeek-R1, …).
+# Empty = unlimited. 0 = no thinking. N>0 needs a build with real budgets;
+# older builds only accept -1/0, so N>0 is skipped there instead of crashing.
+if [[ -n "${REASONING_BUDGET:-}" ]] && supports '--reasoning-budget'; then
+  if [[ "${REASONING_BUDGET}" == "0" ]] || supports 'N>0 for token budget'; then
+    ARGS+=( --reasoning-budget "${REASONING_BUDGET}" )
+    if [[ "${REASONING_BUDGET}" != "0" ]] && supports '--reasoning-budget-message'; then
+      ARGS+=( --reasoning-budget-message "Okay, I have thought enough. Let me give the final answer now." )
+    fi
+  else
+    echo "[LlamaMate] This llama-server only supports a thinking limit of 0 (off); update llama.cpp for token limits. Skipping." >&2
+  fi
 fi
 
 # ── Log rotation ─────────────────────────────────────────────────────────────

@@ -22,6 +22,8 @@ struct ServerConfig {
     var cacheReuse = "256"
     var mlock = "0"
     var threadsBatch = ""
+    var reasoningEffort = "default"   // default | low | medium | high
+    var reasoningBudget = ""          // "" = unlimited, "0" = off, N = token limit
     var profile = "balanced"
 
     static let defaultKeys: [(key: String, value: KeyPath<ServerConfig, String>)] = [
@@ -98,6 +100,8 @@ final class ConfigManager {
             case "CACHE_REUSE": config.cacheReuse = raw
             case "MLOCK":       config.mlock = raw
             case "THREADS_BATCH": config.threadsBatch = raw
+            case "REASONING_EFFORT": config.reasoningEffort = raw
+            case "REASONING_BUDGET": config.reasoningBudget = raw
             case "PROFILE":     config.profile = raw
             case "MODEL_LABEL": config.modelLabel = raw
             case "MODEL_REPO":  config.modelRepo = raw
@@ -145,6 +149,8 @@ final class ConfigManager {
         CACHE_REUSE="\(q(config.cacheReuse))"
         MLOCK="\(q(config.mlock))"
         THREADS_BATCH="\(q(config.threadsBatch))"
+        REASONING_EFFORT="\(q(config.reasoningEffort))"
+        REASONING_BUDGET="\(q(config.reasoningBudget))"
         PROFILE="\(q(config.profile))"
         """
         try FileManager.default.createDirectory(atPath: (configPath as NSString).deletingLastPathComponent, withIntermediateDirectories: true)

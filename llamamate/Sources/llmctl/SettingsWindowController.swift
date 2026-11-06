@@ -24,6 +24,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var cacheReuseCheckbox: NSButton!
     private var mlockCheckbox: NSButton!
     private var threadsBatchField: NSTextField!
+    private var effortPopup: NSPopUpButton!
+    private var budgetPopup: NSPopUpButton!
     private var ramLabel: NSTextField!
     private var diagnosticsLabel: NSTextField!
     private var usageLabel: NSTextField!
@@ -33,6 +35,25 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var lastSelfSampleTime: TimeInterval = 0
     private var previousContextValue = "8192"
     private var originalHost = "127.0.0.1"
+
+    /// Reasoning effort: (menu title, server.conf value).
+    static let effortOptions: [(title: String, value: String)] = [
+        ("Default (model decides)", "default"),
+        ("Low", "low"),
+        ("Medium", "medium"),
+        ("High", "high"),
+    ]
+
+    /// Thinking token limit: (menu title, server.conf value). "" = unlimited.
+    static let budgetOptions: [(title: String, value: String)] = [
+        ("Unlimited", ""),
+        ("Off (no thinking)", "0"),
+        ("512 tokens", "512"),
+        ("1024 tokens", "1024"),
+        ("2048 tokens", "2048"),
+        ("4096 tokens", "4096"),
+        ("8192 tokens", "8192"),
+    ]
 
     static let standardContextValues = [
         "2048",
@@ -65,7 +86,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     private func buildWindow() {
         let w = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 724),
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 806),
             styleMask: [.titled, .closable],
             backing: .buffered, defer: false
         )
@@ -78,7 +99,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let content = NSView(frame: w.contentView!.bounds)
         content.autoresizingMask = [.width, .height]
 
-        var y: CGFloat = 684
+        var y: CGFloat = 766
 
         // ── Header ──
         let header = NSTextField(labelWithString: "Server Configuration")
@@ -239,6 +260,24 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         threadsBatchField.toolTip = "Threads for prompt/batch processing (-tb). Empty = auto. Modest effect with full GPU offload."
         content.addSubview(threadsBatchField)
         addHint("empty = auto", x: 220, y: y, to: content)
+        y -= 34
+
+        // ── Reasoning effort row ──
+        addLabel("Reasoning:", x: 16, y: y - 2, width: 110, to: content)
+        effortPopup = NSPopUpButton(frame: NSRect(x: 130, y: y, width: 200, height: 24))
+        effortPopup.addItems(withTitles: SettingsWindowController.effortOptions.map { $0.title })
+        effortPopup.toolTip = "Reasoning effort passed to the model's chat template (--reasoning-effort). Only models trained with effort levels use it (e.g. gpt-oss); others ignore it — use Thinking limit for those."
+        content.addSubview(effortPopup)
+        addHint("models with effort levels", x: 340, y: y, to: content)
+        y -= 34
+
+        // ── Thinking limit row ──
+        addLabel("Thinking limit:", x: 16, y: y - 2, width: 110, to: content)
+        budgetPopup = NSPopUpButton(frame: NSRect(x: 130, y: y, width: 200, height: 24))
+        budgetPopup.addItems(withTitles: SettingsWindowController.budgetOptions.map { $0.title })
+        budgetPopup.toolTip = "Maximum tokens a thinking model may spend reasoning before it must answer (--reasoning-budget). Works for Qwen3, DeepSeek-R1 and other thinking models. Off = answer without thinking."
+        content.addSubview(budgetPopup)
+        addHint("any thinking model", x: 340, y: y, to: content)
         y -= 36
 
         // ── Separator ──
@@ -248,10 +287,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
         // ── RAM estimate ──
         ramLabel = NSTextField(wrappingLabelWithString: "")
-        ramLabel.frame = NSRect(x: 16, y: y, width: 488, height: 26)
+        // Two lines: the estimate, plus an optional context warning below it.
+        ramLabel.frame = NSRect(x: 16, y: y - 14, width: 488, height: 40)
         ramLabel.font = NSFont.systemFont(ofSize: 11)
         content.addSubview(ramLabel)
-        y -= 30
+        y -= 44
 
         // ── System diagnostics ──
         diagnosticsLabel = NSTextField(wrappingLabelWithString: systemDiagnostics())
@@ -478,6 +518,49 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         cacheReuseCheckbox.state = (sm.cacheReuse != "0" && !sm.cacheReuse.isEmpty) ? .on : .off
         mlockCheckbox.state = (sm.mlock == "1") ? .on : .off
         threadsBatchField.stringValue = sm.threadsBatch
+
+        // Same for effort: keep a hand-edited level (e.g. xhigh) as its own entry.
+        while effortPopup.numberOfItems > SettingsWindowController.effortOptions.count {
+            effortPopup.removeItem(at: effortPopup.numberOfItems - 1)
+        }
+        if let idx = SettingsWindowController.effortOptions.firstIndex(where: { $0.value == sm.reasoningEffort }) {
+            effortPopup.selectItem(at: idx)
+        } else if ["minimal", "xhigh", "max"].contains(sm.reasoningEffort) {
+            effortPopup.addItem(withTitle: sm.reasoningEffort.capitalized)
+            effortPopup.lastItem?.representedObject = sm.reasoningEffort
+            effortPopup.selectItem(at: effortPopup.numberOfItems - 1)
+        } else {
+            effortPopup.selectItem(at: 0)
+        }
+
+        // Restore the thinking limit; keep a hand-edited value that isn't in
+        // the list as its own entry so Apply never changes it silently.
+        while budgetPopup.numberOfItems > SettingsWindowController.budgetOptions.count {
+            budgetPopup.removeItem(at: budgetPopup.numberOfItems - 1)
+        }
+        if let idx = SettingsWindowController.budgetOptions.firstIndex(where: { $0.value == sm.reasoningBudget }) {
+            budgetPopup.selectItem(at: idx)
+        } else if sm.reasoningBudget.allSatisfy({ $0.isNumber }) {
+            budgetPopup.addItem(withTitle: "\(sm.reasoningBudget) tokens")
+            budgetPopup.lastItem?.representedObject = sm.reasoningBudget
+            budgetPopup.selectItem(at: budgetPopup.numberOfItems - 1)
+        } else {
+            budgetPopup.selectItem(at: 0)
+        }
+    }
+
+    private func currentReasoningEffort() -> String {
+        let i = effortPopup.indexOfSelectedItem
+        let opts = SettingsWindowController.effortOptions
+        if i >= 0 && i < opts.count { return opts[i].value }
+        return (effortPopup.selectedItem?.representedObject as? String) ?? "default"
+    }
+
+    private func currentReasoningBudget() -> String {
+        let i = budgetPopup.indexOfSelectedItem
+        let opts = SettingsWindowController.budgetOptions
+        if i >= 0 && i < opts.count { return opts[i].value }
+        return (budgetPopup.selectedItem?.representedObject as? String) ?? ""
     }
 
     private func currentCacheReuse() -> String { cacheReuseCheckbox.state == .on ? "256" : "0" }
@@ -586,7 +669,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let suffix = approx ? " (approx.)" : ""
         var ctxWarn = ""
         if let mc = modelCtx, ctxVal > mc {
-            ctxWarn = String(format: "  ⚠︎ context %d exceeds model max %d", ctxVal, mc)
+            ctxWarn = String(format: "\n⚠︎ Context %d is above this model's trained limit (%d) — answers may get worse.", ctxVal, mc)
         }
 
         if neededGB > availGB {
@@ -656,6 +739,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                 cacheReuse: currentCacheReuse(),
                 mlock: currentMlock(),
                 threadsBatch: currentThreadsBatch(),
+                reasoningEffort: currentReasoningEffort(),
+                reasoningBudget: currentReasoningBudget(),
                 profile: currentProfile()
             )
             window.close()
