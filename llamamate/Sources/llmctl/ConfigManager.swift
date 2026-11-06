@@ -131,11 +131,22 @@ final class ConfigManager {
                           userInfo: [NSLocalizedDescriptionKey: "Bundled llama-server-start.sh is missing from the app."])
         }
 
-        if FileManager.default.fileExists(atPath: startScriptPath) {
-            try FileManager.default.removeItem(atPath: startScriptPath)
+        // Atomic install: stage into a temp file in the same directory, make it
+        // executable, then swap it into place — there is never a window where
+        // the start script is missing or half-written.
+        let fm = FileManager.default
+        let tmpPath = startScriptPath + ".new-\(ProcessInfo.processInfo.processIdentifier)"
+        if fm.fileExists(atPath: tmpPath) { try fm.removeItem(atPath: tmpPath) }
+        try fm.copyItem(atPath: bundled, toPath: tmpPath)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tmpPath)
+
+        if fm.fileExists(atPath: startScriptPath) {
+            _ = try fm.replaceItemAt(URL(fileURLWithPath: startScriptPath),
+                                     withItemAt: URL(fileURLWithPath: tmpPath))
+        } else {
+            try fm.moveItem(atPath: tmpPath, toPath: startScriptPath)
         }
-        try FileManager.default.copyItem(atPath: bundled, toPath: startScriptPath)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: startScriptPath)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: startScriptPath)
     }
 
     // MARK: Paths (read-only access)

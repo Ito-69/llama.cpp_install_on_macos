@@ -57,12 +57,33 @@ func isInstalled() -> Bool {
     FileManager.default.fileExists(atPath: CONFIG_PATH)
 }
 
+let INSTALLED_START_SCRIPT = NSHomeDirectory() + "/.local/bin/llama-server-start.sh"
+
+/// After an app update, an existing install still has the old
+/// ~/.local/bin/llama-server-start.sh until the user next presses Apply.
+/// If an installed start script exists and differs from the bundled canonical
+/// one, refresh it in place. The new script only takes effect on the next
+/// server start — we deliberately do not restart a running server here. If no
+/// start script exists (llama.cpp not installed), we do nothing.
+func migrateStartScriptIfOutdated() {
+    let fm = FileManager.default
+    guard fm.fileExists(atPath: INSTALLED_START_SCRIPT) else { return }
+    guard let resPath = Bundle.main.resourcePath else { return }
+    let bundled = resPath + "/llama-server-start.sh"
+    guard let bundledData = fm.contents(atPath: bundled),
+          let installedData = fm.contents(atPath: INSTALLED_START_SCRIPT) else { return }
+    if bundledData != installedData {
+        try? ConfigManager.shared.writeStartScript()
+    }
+}
+
 // MARK: - App Delegate
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         ensureSupportDir()
         copyBundledScript()
+        migrateStartScriptIfOutdated()
         _ = MenuBarController.shared
     }
 }
