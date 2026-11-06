@@ -519,8 +519,21 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
             return
         }
         if let file = file {
-            // Direct: skip picker
-            startDownload(repo: repo, file: file, label: file)
+            // Direct file: resolve its real size and any split siblings via the
+            // tree API, then download (falling back to a size-unknown single file).
+            urlStatus.stringValue = "Resolving \(file)…"
+            HuggingFaceAPI.shared.listRepoFiles(repo: repo) { [weak self] result in
+                guard let self = self else { return }
+                self.urlStatus.stringValue = ""
+                let fallback = HFRepoFile(path: file, size: 0, quant: HuggingFaceAPI.parseQuant(file))
+                if case .success(let files) = result,
+                   let picked = files.first(where: { $0.path == file || ($0.path as NSString).lastPathComponent == (file as NSString).lastPathComponent }) {
+                    let parts = self.splitParts(in: files, forFirst: picked)
+                    self.startDownload(repo: repo, firstFile: (picked.path as NSString).lastPathComponent, parts: parts, label: picked.path)
+                } else {
+                    self.startDownload(repo: repo, firstFile: (file as NSString).lastPathComponent, parts: [fallback], label: file)
+                }
+            }
         } else {
             showFilePicker(forRepo: repo, suggestedLabel: repo, suggestedFile: nil, sourceStatus: urlStatus)
         }
@@ -641,12 +654,18 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
 
     private func presentFilePicker(repo: String, files: [HFRepoFile], suggestedLabel: String) {
         guard let parent = window else { return }
+        // Collapse split sets into a single row (first part, summed size) for
+        // display, but keep the full list to resolve the parts on pick.
+        let display = Self.groupedForDisplay(files)
         let picker = FilePickerController(
             repo: repo,
-            files: files,
+            files: display,
             parentWindow: parent,
-            onPick: { [weak self] file, label in
-                self?.startDownload(repo: repo, file: file, label: label)
+            onPick: { [weak self] picked, label in
+                guard let self = self else { return }
+                let parts = self.splitParts(in: files, forFirst: picked)
+                let first = (picked.path as NSString).lastPathComponent
+                self.startDownload(repo: repo, firstFile: first, parts: parts, label: label)
             },
             onDismiss: { [weak self] in
                 self?.activeFilePicker = nil
@@ -656,9 +675,40 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         picker.runFloating()
     }
 
+    /// Collapse split GGUF sets (…-00001-of-00003.gguf) to one row showing the
+    /// first part and the summed size.
+    static func groupedForDisplay(_ files: [HFRepoFile]) -> [HFRepoFile] {
+        var groups: [String: [HFRepoFile]] = [:]
+        var out: [HFRepoFile] = []
+        for f in files {
+            let name = (f.path as NSString).lastPathComponent
+            if let base = ModelManager.splitBase(of: name) {
+                groups[base, default: []].append(f)
+            } else {
+                out.append(f)
+            }
+        }
+        for (_, parts) in groups {
+            let sorted = parts.sorted { ($0.path as NSString).lastPathComponent < ($1.path as NSString).lastPathComponent }
+            guard let first = sorted.first else { continue }
+            let total = sorted.reduce(Int64(0)) { $0 + $1.size }
+            out.append(HFRepoFile(path: first.path, size: total, quant: first.quant))
+        }
+        return out.sorted { $0.size > $1.size }
+    }
+
+    /// Resolve every part belonging to the picked (possibly split) file.
+    func splitParts(in files: [HFRepoFile], forFirst first: HFRepoFile) -> [HFRepoFile] {
+        let name = (first.path as NSString).lastPathComponent
+        guard let base = ModelManager.splitBase(of: name) else { return [first] }
+        return files
+            .filter { ModelManager.splitBase(of: ($0.path as NSString).lastPathComponent) == base }
+            .sorted { ($0.path as NSString).lastPathComponent < ($1.path as NSString).lastPathComponent }
+    }
+
     // MARK: Download
 
-    private func startDownload(repo: String, file: String, label: String) {
+    private func startDownload(repo: String, firstFile: String, parts: [HFRepoFile], label: String) {
         if isDownloading {
             NSSound.beep()
             return
@@ -674,12 +724,14 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         closeButton.isHidden = true
         isDownloading = true
         adjustLayout()
-        progressLabel.stringValue = "Downloading \(file)…"
+        let label0 = parts.count > 1 ? "\(firstFile) (+\(parts.count - 1) parts)" : firstFile
+        progressLabel.stringValue = "Downloading \(label0)…"
 
+        let downloadParts = parts.map { DownloadPart(file: $0.path, expectedSize: $0.size) }
         let model = ModelManager.shared
-        let session = model.downloadModel(
+        let session = model.downloadModelParts(
             repo: repo,
-            file: file,
+            parts: downloadParts,
             logCallback: { [weak self] s in
                 guard let self = self else { return }
                 let attr = NSAttributedString(string: s, attributes: [
@@ -692,7 +744,7 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
             progressCallback: { [weak self] p in
                 guard let self = self else { return }
                 self.progressBar.doubleValue = p
-                self.progressLabel.stringValue = String(format: "Downloading %@ — %.0f%%", file, p * 100)
+                self.progressLabel.stringValue = String(format: "Downloading %@ — %.0f%%", label0, p * 100)
             },
             completion: { [weak self] success in
                 guard let self = self else { return }
@@ -705,7 +757,7 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
                 self.adjustLayout()
                 if success {
                     self.progressLabel.stringValue = "Download finished."
-                    self.afterDownload(repo: repo, file: file, label: label)
+                    self.afterDownload(repo: repo, file: firstFile, label: label)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
                         guard let self = self else { return }
                         self.progressLabel.isHidden = true
@@ -894,12 +946,12 @@ final class FilePickerController: NSObject, NSWindowDelegate {
     private let repo: String
     private let files: [HFRepoFile]
     private let parentWindow: NSWindow
-    private let onPick: (String, String) -> Void
+    private let onPick: (HFRepoFile, String) -> Void
     private let onDismiss: () -> Void
     private var panel: NSPanel!
     private var table: NSTableView!
 
-    init(repo: String, files: [HFRepoFile], parentWindow: NSWindow, onPick: @escaping (String, String) -> Void, onDismiss: @escaping () -> Void) {
+    init(repo: String, files: [HFRepoFile], parentWindow: NSWindow, onPick: @escaping (HFRepoFile, String) -> Void, onDismiss: @escaping () -> Void) {
         self.repo = repo
         self.files = files
         self.parentWindow = parentWindow
@@ -976,7 +1028,7 @@ final class FilePickerController: NSObject, NSWindowDelegate {
         }
         let f = files[row]
         panel?.close()
-        onPick(f.path, f.path)
+        onPick(f, f.path)
     }
 
     @objc private func rowDoubleClicked() {

@@ -78,15 +78,18 @@ fi
 
 # API key, only if one is configured. Prefer --api-key-file (keeps the secret
 # out of the process argument list) and fall back to --api-key.
+KEY_FILE="${HOME}/.config/llama/api_key"
 if [[ -n "${API_KEY:-}" ]]; then
   if supports '--api-key-file'; then
-    KEY_FILE="${HOME}/.config/llama/api_key"
     mkdir -p "$(dirname "$KEY_FILE")"
     ( umask 077; printf '%s\n' "${API_KEY}" > "$KEY_FILE" )
     ARGS+=( --api-key-file "$KEY_FILE" )
   elif supports '--api-key'; then
     ARGS+=( --api-key "${API_KEY}" )
   fi
+else
+  # No key configured — never leave a stale key file on disk.
+  rm -f "$KEY_FILE"
 fi
 
 # NOTE (Phase 3b): optional perf flags (--cache-reuse, -tb, mlock via -lm/--mlock)
