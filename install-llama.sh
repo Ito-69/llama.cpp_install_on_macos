@@ -75,7 +75,8 @@ SHELL_RCS=()
 
 PORT=8080
 CONTEXT=8192
-HOST="0.0.0.0"
+HOST="127.0.0.1"
+API_KEY="${API_KEY:-}"
 MODE_UPDATE=0
 MODE_STATUS=0
 MODE_CHECK_UPDATE=0
@@ -270,6 +271,7 @@ MODEL_PATH="${MODEL_PATH}"
 PORT=${PORT}
 CONTEXT=${CONTEXT}
 HOST="${HOST}"
+API_KEY="${API_KEY:-}"
 NGL=${NGL:-99}
 FA=${FA:-1}
 CTK="${CTK:-q8_0}"
@@ -279,6 +281,8 @@ BATCH_SIZE=${BATCH_SIZE:-2048}
 UBATCH_SIZE=${UBATCH_SIZE:-512}
 PROFILE="${PROFILE:-balanced}"
 EOF
+  # May contain an API key — keep it owner-only.
+  chmod 600 "$CONFIG_FILE" 2>/dev/null || true
 }
 
 apply_model_preset() {
@@ -929,19 +933,25 @@ download_model() {
 # ── LAN IP (for local network access) ──────────────────────────────────────────
 print_network_info() {
   local ip=""
-  for iface in en0 en1; do
-    ip="$(ipconfig getifaddr "$iface" 2>/dev/null || true)"
-    [[ -n "$ip" ]] && break
-  done
   echo ""
-  ok "Server listening on all interfaces (local network)"
-  echo -e "  ${GREEN}WebUI:${NC}    http://127.0.0.1:${PORT}"
-  echo -e "  ${GREEN}API:${NC}      http://127.0.0.1:${PORT}/v1"
-  if [[ -n "$ip" ]]; then
-    echo -e "  ${GREEN}LAN WebUI:${NC} http://${ip}:${PORT}"
-    echo -e "  ${GREEN}LAN API:${NC}   http://${ip}:${PORT}/v1"
+  if [[ "${HOST}" == "0.0.0.0" ]]; then
+    for iface in en0 en1; do
+      ip="$(ipconfig getifaddr "$iface" 2>/dev/null || true)"
+      [[ -n "$ip" ]] && break
+    done
+    ok "Server listening on all interfaces (local network)"
+    echo -e "  ${GREEN}WebUI:${NC}    http://127.0.0.1:${PORT}"
+    echo -e "  ${GREEN}API:${NC}      http://127.0.0.1:${PORT}/v1"
+    if [[ -n "$ip" ]]; then
+      echo -e "  ${GREEN}LAN WebUI:${NC} http://${ip}:${PORT}"
+      echo -e "  ${GREEN}LAN API:${NC}   http://${ip}:${PORT}/v1"
+    fi
+  else
+    ok "Server listening on ${HOST} only (this Mac)"
+    echo -e "  ${GREEN}WebUI:${NC}    http://127.0.0.1:${PORT}"
+    echo -e "  ${GREEN}API:${NC}      http://127.0.0.1:${PORT}/v1"
   fi
-  print_test_instructions "$ip"
+  print_test_instructions "127.0.0.1"
 }
 
 print_test_instructions() {
@@ -1172,7 +1182,7 @@ ARGS=(
   -m "${MODEL_PATH}"
   -c "${CTX_VAL}"
   --port "${PORT:-8080}"
-  --host "${HOST:-0.0.0.0}"
+  --host "${HOST:-127.0.0.1}"
   -ngl "${NGL:-99}"
   -fa "${FA_VAL}"
   -t "${THREADS:-0}"
@@ -1183,6 +1193,19 @@ ARGS=(
 # KV cache type flags, only if this build understands them.
 if supports '--cache-type-k' || supports '-ctk,'; then
   ARGS+=( -ctk "${CTK_VAL}" -ctv "${CTV_VAL}" )
+fi
+
+# API key, only if one is configured. Prefer --api-key-file (keeps the secret
+# out of the process argument list) and fall back to --api-key.
+if [[ -n "${API_KEY:-}" ]]; then
+  if supports '--api-key-file'; then
+    KEY_FILE="${HOME}/.config/llama/api_key"
+    mkdir -p "$(dirname "$KEY_FILE")"
+    ( umask 077; printf '%s\n' "${API_KEY}" > "$KEY_FILE" )
+    ARGS+=( --api-key-file "$KEY_FILE" )
+  elif supports '--api-key'; then
+    ARGS+=( --api-key "${API_KEY}" )
+  fi
 fi
 
 # NOTE (Phase 3b): optional perf flags (--cache-reuse, -tb, mlock via -lm/--mlock)

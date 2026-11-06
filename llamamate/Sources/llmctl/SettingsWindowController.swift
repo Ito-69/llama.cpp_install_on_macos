@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import Security
 
 final class SettingsWindowController: NSObject, NSWindowDelegate {
     static let shared = SettingsWindowController()
@@ -16,6 +17,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var threadsField: NSTextField!
     private var batchField: NSTextField!
     private var portField: NSTextField!
+    private var lanCheckbox: NSButton!
+    private var lanWarning: NSTextField!
+    private var apiKeyField: NSTextField!
     private var ramLabel: NSTextField!
     private var diagnosticsLabel: NSTextField!
     private var usageLabel: NSTextField!
@@ -24,6 +28,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var lastSelfCpuTime: Double = 0
     private var lastSelfSampleTime: TimeInterval = 0
     private var previousContextValue = "8192"
+    private var originalHost = "127.0.0.1"
 
     static let standardContextValues = [
         "2048",
@@ -55,7 +60,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     private func buildWindow() {
         let w = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 540),
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 632),
             styleMask: [.titled, .closable],
             backing: .buffered, defer: false
         )
@@ -68,7 +73,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let content = NSView(frame: w.contentView!.bounds)
         content.autoresizingMask = [.width, .height]
 
-        var y: CGFloat = 500
+        var y: CGFloat = 592
 
         // ── Header ──
         let header = NSTextField(labelWithString: "Server Configuration")
@@ -174,6 +179,37 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         portField.placeholderString = "8080"
         portField.toolTip = "TCP port for the llama-server HTTP API and WebUI."
         content.addSubview(portField)
+        y -= 34
+
+        // ── Network (LAN) row ──
+        addLabel("Network:", x: 16, y: y - 2, width: 110, to: content)
+        lanCheckbox = NSButton(checkboxWithTitle: "Allow access from local network",
+                               target: self, action: #selector(lanChanged(_:)))
+        lanCheckbox.frame = NSRect(x: 130, y: y, width: 320, height: 22)
+        lanCheckbox.toolTip = "Off: the server binds 127.0.0.1 (this Mac only). On: it binds 0.0.0.0 and is reachable from other devices on your network."
+        content.addSubview(lanCheckbox)
+        y -= 24
+        lanWarning = NSTextField(labelWithString: "")
+        lanWarning.frame = NSRect(x: 130, y: y, width: 374, height: 28)
+        lanWarning.font = NSFont.systemFont(ofSize: 10)
+        lanWarning.textColor = .systemOrange
+        (lanWarning.cell as? NSTextFieldCell)?.wraps = true
+        content.addSubview(lanWarning)
+        y -= 34
+
+        // ── API key row ──
+        addLabel("API key:", x: 16, y: y - 2, width: 110, to: content)
+        apiKeyField = NSTextField(frame: NSRect(x: 130, y: y, width: 250, height: 22))
+        apiKeyField.placeholderString = "none (open access)"
+        apiKeyField.toolTip = "Optional bearer token required for API requests. The /health endpoint stays open so status checks keep working."
+        apiKeyField.target = self
+        apiKeyField.action = #selector(apiKeyEdited)
+        content.addSubview(apiKeyField)
+        let genBtn = NSButton(title: "Generate", target: self, action: #selector(generateApiKey))
+        genBtn.bezelStyle = .rounded
+        genBtn.frame = NSRect(x: 388, y: y - 1, width: 100, height: 24)
+        genBtn.toolTip = "Generate a random 32-character key."
+        content.addSubview(genBtn)
         y -= 34
 
         // ── Separator ──
@@ -282,7 +318,27 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         batchField.stringValue = sm.batchSize == "2048" ? "" : sm.batchSize
         portField.stringValue = sm.port
 
+        // Reflect the current bind address without changing it.
+        originalHost = sm.host
+        lanCheckbox.isEnabled = true
+        lanCheckbox.title = "Allow access from local network"
+        lanCheckbox.toolTip = "Off: the server binds 127.0.0.1 (this Mac only). On: it binds 0.0.0.0 and is reachable from other devices on your network."
+        switch sm.host {
+        case "0.0.0.0":
+            lanCheckbox.state = .on
+        case "127.0.0.1", "localhost", "":
+            lanCheckbox.state = .off
+        default:
+            // A custom host — don't offer to flip it; preserve it on Apply.
+            lanCheckbox.state = .off
+            lanCheckbox.isEnabled = false
+            lanCheckbox.title = "Custom host: \(sm.host)"
+            lanCheckbox.toolTip = "server.conf sets a custom host (\(sm.host)); it is left unchanged."
+        }
+        apiKeyField.stringValue = sm.apiKey
+
         applyFaCacheGuard()
+        updateLanWarning()
     }
 
     private func currentProfile() -> String {
@@ -360,6 +416,42 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     @objc private func cacheChanged(_ sender: NSPopUpButton) {
         updateRamEstimate()
+    }
+
+    // MARK: Network / API key
+
+    @objc private func lanChanged(_ sender: NSButton) {
+        updateLanWarning()
+    }
+
+    @objc private func apiKeyEdited(_ sender: NSTextField) {
+        updateLanWarning()
+    }
+
+    @objc private func generateApiKey(_ sender: NSButton) {
+        var bytes = [UInt8](repeating: 0, count: 16)
+        if SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess {
+            apiKeyField.stringValue = bytes.map { String(format: "%02x", $0) }.joined()
+            updateLanWarning()
+        }
+    }
+
+    private func currentHost() -> String {
+        // A disabled checkbox means the config holds a custom host we preserve.
+        if !lanCheckbox.isEnabled { return originalHost }
+        return lanCheckbox.state == .on ? "0.0.0.0" : "127.0.0.1"
+    }
+
+    private func currentApiKey() -> String {
+        apiKeyField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func updateLanWarning() {
+        if lanCheckbox.state == .on && currentApiKey().isEmpty {
+            lanWarning.stringValue = "⚠️  LAN access is on without an API key — anyone on your network can use the server. Click Generate."
+        } else {
+            lanWarning.stringValue = ""
+        }
     }
 
     private func promptCustomContext() {
@@ -451,6 +543,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                 ubatchSize: "512",
                 context: currentContext(),
                 port: portField.stringValue.isEmpty ? "8080" : portField.stringValue,
+                host: currentHost(),
+                apiKey: currentApiKey(),
                 profile: currentProfile()
             )
             window.close()

@@ -43,7 +43,7 @@ final class HuggingFaceAPI {
 
     private func authorizedRequest(_ url: URL) -> URLRequest {
         var req = URLRequest(url: url)
-        if let token = UserDefaults.standard.string(forKey: "hf_token"), !token.isEmpty {
+        if let token = KeychainStore.hfToken {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         return req
@@ -143,7 +143,7 @@ final class HuggingFaceAPI {
             let url = URL(string: "https://huggingface.co/\(repo)/resolve/main/\(file)")!
             var req = URLRequest(url: url)
             req.httpMethod = "HEAD"
-            if let token = UserDefaults.standard.string(forKey: "hf_token"), !token.isEmpty {
+            if let token = KeychainStore.hfToken {
                 req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             }
             session.dataTask(with: req) { _, response, _ in
