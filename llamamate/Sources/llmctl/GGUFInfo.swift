@@ -1,14 +1,33 @@
 import Foundation
 
-/// The handful of GGUF metadata fields needed to estimate KV-cache size.
+/// The GGUF metadata fields needed to estimate KV-cache size and to detect
+/// optional model features (MTP heads).
 struct GGUFMetadata {
     var architecture: String?
     var blockCount: Int?
     var headCountKV: Int?
+    /// Per-layer KV head counts, when the model stores them as an array
+    /// (hybrid models use 0 for layers without attention).
+    var headCountKVPerLayer: [Int]?
+    /// Per-layer flags (non-zero = recurrent, i.e. no KV cache), if present.
+    var recurrentLayers: [Int]?
+    var fullAttentionInterval: Int?
     var keyLength: Int?
     var embeddingLength: Int?
     var headCount: Int?
     var contextLength: Int?
+    var slidingWindow: Int?
+    /// `<arch>.nextn_predict_layers`: number of MTP (multi-token prediction) layers.
+    var nextnPredictLayers: Int?
+    /// Whether tensors named `*.nextn.*` were found in the tensor index.
+    /// nil = the index could not be read within the header window.
+    var hasNextnTensors: Bool?
+
+    /// Hybrid architectures that mark full-attention layers by an interval,
+    /// with llama.cpp's default interval when the key is absent.
+    static let defaultFullAttentionInterval: [String: Int] = [
+        "qwen3next": 4, "qwen35": 4, "qwen35moe": 4, "qwen4exp": 4, "minimax-01": 8,
+    ]
 
     /// Per-head key dimension: explicit key_length, else embedding/head_count.
     var effectiveKeyLength: Int? {
@@ -17,9 +36,44 @@ struct GGUFMetadata {
         return nil
     }
 
-    var isComplete: Bool {
-        blockCount != nil && headCountKV != nil && effectiveKeyLength != nil
+    /// True when the model ships MTP heads that llama.cpp can use for
+    /// speculative decoding (`--spec-type draft-mtp`).
+    var supportsMTP: Bool {
+        (nextnPredictLayers ?? 0) > 0 && hasNextnTensors == true
     }
+
+    /// Sum of KV heads over all layers that actually keep a KV cache. Hybrid
+    /// models (Gated DeltaNet / Mamba layers) only cache their attention layers.
+    var totalKVHeads: Int? {
+        guard let n = blockCount, n > 0 else { return nil }
+        if let perLayer = headCountKVPerLayer, !perLayer.isEmpty {
+            return perLayer.prefix(n).reduce(0) { $0 + max(0, $1) }
+        }
+        guard let nKV = headCountKV, nKV > 0 else { return nil }
+        if let recr = recurrentLayers, !recr.isEmpty {
+            let attentionLayers = (0..<n).filter { $0 >= recr.count || recr[$0] == 0 }.count
+            return nKV * attentionLayers
+        }
+        let interval = fullAttentionInterval
+            ?? architecture.flatMap { Self.defaultFullAttentionInterval[$0] }
+        if let iv = interval, iv > 0 {
+            // Mirrors llama.cpp: layer i < n_layer is recurrent unless (i+1) % interval == 0;
+            // trailing MTP (nextn) layers are attention layers.
+            let nextn = max(0, nextnPredictLayers ?? 0)
+            let main = max(0, n - nextn)
+            let attentionLayers = (0..<main).filter { ($0 + 1) % iv == 0 }.count + nextn
+            return nKV * attentionLayers
+        }
+        return nKV * n
+    }
+
+    var isComplete: Bool {
+        totalKVHeads != nil && effectiveKeyLength != nil
+    }
+
+    /// Sliding-window attention keeps a smaller cache on some layers, so the
+    /// full-context estimate is an upper bound.
+    var isApproximate: Bool { (slidingWindow ?? 0) > 0 }
 }
 
 /// Minimal, bounds-checked GGUF header reader. Reads at most `maxBytes` and
@@ -47,29 +101,40 @@ enum GGUFInfo {
         guard c.take(4).elementsEqual(Array("GGUF".utf8)) else { return nil }
         guard let version = c.u32() else { return nil }
         let wide = version >= 2   // v2+ uses 64-bit lengths/counts
-        guard c.len(wide) != nil, let kvCount = c.len(wide) else { return nil }
+        guard let tensorCount = c.len(wide), let kvCount = c.len(wide) else { return nil }
 
         var arch: String?
         var numeric: [String: Int] = [:]
+        var intArrays: [String: [Int]] = [:]
 
         var i = 0
+        var kvComplete = true
         while i < kvCount {
             i += 1
-            guard let key = c.ggufString(wide) else { break }
-            guard let vtype = c.u32() else { break }
+            guard let key = c.ggufString(wide) else { kvComplete = false; break }
+            guard let vtype = c.u32() else { kvComplete = false; break }
             switch Int(vtype) {
             case T.string:
                 guard let s = c.ggufString(wide) else { break }
                 if key == "general.architecture" { arch = s }
-            case T.u8, T.i8, T.u16, T.i16, T.u32, T.i32, T.u64, T.i64:
+            case T.u8, T.i8, T.u16, T.i16, T.u32, T.i32, T.u64, T.i64, T.bool:
                 if let v = c.scalarInt(Int(vtype)) { numeric[key] = v }
             case T.f32: _ = c.skip(4)
             case T.f64: _ = c.skip(8)
-            case T.bool: _ = c.skip(1)
-            case T.array: if !c.skipArray(wide) { i = kvCount } // stop on bad array
+            case T.array:
+                // Keep the small per-layer integer arrays we need; skip the rest.
+                if key.hasSuffix(".attention.head_count_kv") || key.hasSuffix(".attention.recurrent_layers") {
+                    if let arr = c.intArray(wide, maxCount: 4096) {
+                        intArrays[key] = arr
+                    } else if c.failed {
+                        i = kvCount
+                    }
+                } else if !c.skipArray(wide) {
+                    i = kvCount // stop on bad array
+                }
             default: i = kvCount // unknown type: stop, use what we have
             }
-            if c.failed { break }
+            if c.failed { kvComplete = false; break }
         }
 
         var meta = GGUFMetadata()
@@ -77,11 +142,34 @@ enum GGUFInfo {
         if let a = arch {
             meta.blockCount = numeric["\(a).block_count"]
             meta.headCountKV = numeric["\(a).attention.head_count_kv"]
+            meta.headCountKVPerLayer = intArrays["\(a).attention.head_count_kv"]
+            meta.recurrentLayers = intArrays["\(a).attention.recurrent_layers"]
+            meta.fullAttentionInterval = numeric["\(a).full_attention_interval"]
             meta.keyLength = numeric["\(a).attention.key_length"]
             meta.embeddingLength = numeric["\(a).embedding_length"]
             meta.headCount = numeric["\(a).attention.head_count"]
             meta.contextLength = numeric["\(a).context_length"]
+            meta.slidingWindow = numeric["\(a).attention.sliding_window"]
+            meta.nextnPredictLayers = numeric["\(a).nextn_predict_layers"]
         }
+
+        // Tensor index follows the KV section: name, n_dims, dims[], type, offset.
+        // Only needed to confirm MTP heads are really present in this file.
+        if kvComplete, (meta.nextnPredictLayers ?? 0) > 0 {
+            var found = false
+            var complete = true
+            for _ in 0..<max(0, tensorCount) {
+                guard let name = c.ggufString(wide),
+                      let nDims = c.u32(),
+                      c.skip(Int(nDims) * 8),   // dims (u64 each)
+                      c.skip(4),                // ggml type
+                      c.skip(8)                 // data offset
+                else { complete = false; break }
+                if name.contains(".nextn.") { found = true; break }
+            }
+            meta.hasNextnTensors = found ? true : (complete ? false : nil)
+        }
+
         cacheLock.lock()
         cache[path] = (mtime, meta)
         cacheLock.unlock()
@@ -96,7 +184,7 @@ enum GGUFInfo {
         init(_ data: Data) { d = [UInt8](data) }
 
         mutating func need(_ n: Int) -> Bool {
-            if failed || i + n > d.count { failed = true; return false }
+            if failed || n < 0 || i + n > d.count { failed = true; return false }
             return true
         }
         mutating func take(_ n: Int) -> [UInt8] {
@@ -121,7 +209,10 @@ enum GGUFInfo {
         }
         /// A length/count: 64-bit in GGUF v2+, else 32-bit.
         mutating func len(_ wide: Bool) -> Int? {
-            if wide { return u64().map { Int($0) } }
+            if wide {
+                guard let v = u64(), v <= UInt64(Int.max) else { return nil }
+                return Int(v)
+            }
             return u32().map { Int($0) }
         }
         mutating func ggufString(_ wide: Bool) -> String? {
@@ -129,13 +220,17 @@ enum GGUFInfo {
             defer { i += n }
             return String(decoding: d[i..<i+n], as: UTF8.self)
         }
-        /// Read a scalar integer of the given GGUF type as Int.
+        /// Read a scalar integer (or bool) of the given GGUF type as Int.
         mutating func scalarInt(_ t: Int) -> Int? {
             switch t {
-            case T.u8, T.i8, T.bool: guard need(1) else { return nil }; defer { i += 1 }; return Int(d[i])
-            case T.u16, T.i16: guard need(2) else { return nil }; defer { i += 2 }; return Int(d[i]) | Int(d[i+1])<<8
-            case T.u32, T.i32: return u32().map { Int(Int32(bitPattern: $0)) }
-            case T.u64, T.i64: return u64().map { Int(bitPattern: UInt($0)) }
+            case T.u8, T.bool: guard need(1) else { return nil }; defer { i += 1 }; return Int(d[i])
+            case T.i8: guard need(1) else { return nil }; defer { i += 1 }; return Int(Int8(bitPattern: d[i]))
+            case T.u16: guard need(2) else { return nil }; defer { i += 2 }; return Int(d[i]) | Int(d[i+1])<<8
+            case T.i16: guard need(2) else { return nil }; defer { i += 2 }; return Int(Int16(bitPattern: UInt16(d[i]) | UInt16(d[i+1])<<8))
+            case T.u32: return u32().map { Int($0) }
+            case T.i32: return u32().map { Int(Int32(bitPattern: $0)) }
+            case T.u64: return u64().map { $0 > UInt64(Int.max) ? Int.max : Int($0) }
+            case T.i64: return u64().map { Int(Int64(bitPattern: $0)) }
             default: return nil
             }
         }
@@ -149,12 +244,37 @@ enum GGUFInfo {
             default: return nil
             }
         }
+        /// Reads an array of integer/bool elements. Returns nil (after skipping
+        /// it) when the elements aren't integers or there are more than maxCount.
+        mutating func intArray(_ wide: Bool, maxCount: Int) -> [Int]? {
+            guard let et = u32(), let count = len(wide), count >= 0 else { failed = true; return nil }
+            let t = Int(et)
+            let isInt = [T.u8, T.i8, T.u16, T.i16, T.u32, T.i32, T.u64, T.i64, T.bool].contains(t)
+            guard isInt, count <= maxCount else {
+                // Not what we want: skip it like any other array.
+                if let sz = scalarSize(t) { skip(sz * count); return nil }
+                if t == T.string {
+                    for _ in 0..<count { if ggufString(wide) == nil { return nil } }
+                    return nil
+                }
+                failed = true
+                return nil
+            }
+            var out: [Int] = []
+            out.reserveCapacity(count)
+            for _ in 0..<count {
+                guard let v = scalarInt(t) else { return nil }
+                out.append(v)
+            }
+            return out
+        }
         /// Skip an array value (elemType, count, then the elements).
         mutating func skipArray(_ wide: Bool) -> Bool {
             guard let et = u32(), let count = len(wide), count >= 0 else { return false }
             let t = Int(et)
             if let sz = scalarSize(t) {
-                return skip(sz * count)           // fixed-size elements in one jump
+                let (bytes, overflow) = sz.multipliedReportingOverflow(by: count)
+                return !overflow && skip(bytes)   // fixed-size elements in one jump
             }
             if t == T.string {
                 for _ in 0..<count { if ggufString(wide) == nil { return false } }

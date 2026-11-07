@@ -43,6 +43,8 @@ san UBATCH_SIZE 512
 san CACHE_REUSE 256
 san THREADS_BATCH ""
 san REASONING_BUDGET ""
+san MTP_DRAFT 4
+san PARALLEL ""
 
 # ── Effective values (with defaults) ─────────────────────────────────────────
 FA_VAL="${FA:-1}"
@@ -50,6 +52,8 @@ CTK_VAL="${CTK:-q8_0}"
 CTV_VAL="${CTV:-q8_0}"
 CTX_VAL="${CONTEXT:-8192}"
 CACHE_REUSE="${CACHE_REUSE:-256}"
+MTP_DRAFT="${MTP_DRAFT:-4}"
+if [[ "${MTP_DRAFT}" -lt 1 || "${MTP_DRAFT}" -gt 16 ]]; then MTP_DRAFT=4; fi
 
 # ── Flash Attention / KV-cache guard ─────────────────────────────────────────
 # On Metal a quantized KV cache (q8_0/q4_0) requires Flash Attention. If a
@@ -179,18 +183,46 @@ if [[ -n "${REASONING_BUDGET:-}" ]] && supports '--reasoning-budget'; then
   fi
 fi
 
-# ── User extra flags ─────────────────────────────────────────────────────────
+# ── Parallel slots ───────────────────────────────────────────────────────────
+# Empty = llama.cpp auto (4 slots sharing one KV pool). An explicit -np turns
+# the shared pool off and splits the context between slots, so for N > 1 we
+# also ask for a unified KV cache: every slot can use the full context.
+if [[ -n "${PARALLEL:-}" && "${PARALLEL}" != "0" ]] && { supports '--parallel' || supports '-np,'; }; then
+  ARGS+=( -np "${PARALLEL}" )
+  if [[ "${PARALLEL}" -gt 1 ]] && supports '--kv-unified'; then
+    ARGS+=( --kv-unified )
+  fi
+fi
+
+# ── User extra flags (parsed here so built-in options can defer to them) ─────
 # EXTRA_ARGS (best kept in server.local.conf) is appended last, so it can also
 # override anything above. Space-separated; values containing spaces are not
 # supported. Flags are passed as-is: an unknown flag stops the server, and the
 # error shows in the server log.
+EXTRA=()
 if [[ -n "${EXTRA_ARGS:-}" ]]; then
-  EXTRA=()
   read -r -a EXTRA <<< "${EXTRA_ARGS}" || true
-  if [[ ${#EXTRA[@]} -gt 0 ]]; then
-    ARGS+=( "${EXTRA[@]}" )
-    echo "[LlamaMate] Extra flags (EXTRA_ARGS): ${EXTRA[*]}" >&2
+fi
+
+# ── MTP speculative decoding ─────────────────────────────────────────────────
+# MODEL_HAS_MTP is written by LlamaMate after reading the model's GGUF header
+# (nextn_predict_layers > 0 and *.nextn.* tensors present). Drafts are checked
+# by the main model, so output quality is unchanged. Skipped when EXTRA_ARGS
+# already sets a --spec-type, so the user's choice wins.
+if [[ "${MTP:-auto}" != "off" && "${MODEL_HAS_MTP:-0}" == "1" && " ${EXTRA_ARGS:-} " != *" --spec-type "* ]]; then
+  if supports 'draft-mtp'; then
+    ARGS+=( --spec-type draft-mtp )
+    if supports '--spec-draft-n-max'; then
+      ARGS+=( --spec-draft-n-max "${MTP_DRAFT:-4}" )
+    fi
+  else
+    echo "[LlamaMate] Model has MTP heads, but this llama-server has no draft-mtp; update llama.cpp. Skipping." >&2
   fi
+fi
+
+if [[ ${#EXTRA[@]} -gt 0 ]]; then
+  ARGS+=( "${EXTRA[@]}" )
+  echo "[LlamaMate] Extra flags (EXTRA_ARGS): ${EXTRA[*]}" >&2
 fi
 
 # ── Log rotation ─────────────────────────────────────────────────────────────

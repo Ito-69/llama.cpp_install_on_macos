@@ -26,6 +26,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var threadsBatchField: NSTextField!
     private var effortPopup: NSPopUpButton!
     private var budgetPopup: NSPopUpButton!
+    private var parallelPopup: NSPopUpButton!
+    private var mtpPopup: NSPopUpButton!
+    private var mtpDraftPopup: NSPopUpButton!
+    private var mtpHint: NSTextField!
     private var ramLabel: NSTextField!
     private var diagnosticsLabel: NSTextField!
     private var usageLabel: NSTextField!
@@ -54,6 +58,22 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         ("4096 tokens", "4096"),
         ("8192 tokens", "8192"),
     ]
+
+    /// Parallel request slots: (menu title, server.conf value). "" = llama.cpp auto.
+    static let parallelOptions: [(title: String, value: String)] = [
+        ("Auto (llama.cpp default)", ""),
+        ("1 — single user", "1"),
+        ("2", "2"),
+        ("4", "4"),
+    ]
+
+    /// MTP speculative decoding: (menu title, server.conf value).
+    static let mtpOptions: [(title: String, value: String)] = [
+        ("Auto (if model supports it)", "auto"),
+        ("Off", "off"),
+    ]
+
+    static let mtpDraftValues = ["2", "3", "4", "5", "6"]
 
     static let standardContextValues = [
         "2048",
@@ -86,7 +106,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     private func buildWindow() {
         let w = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 806),
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 874),
             styleMask: [.titled, .closable],
             backing: .buffered, defer: false
         )
@@ -99,7 +119,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let content = NSView(frame: w.contentView!.bounds)
         content.autoresizingMask = [.width, .height]
 
-        var y: CGFloat = 766
+        var y: CGFloat = 834
 
         // ── Header ──
         let header = NSTextField(labelWithString: "Server Configuration")
@@ -278,6 +298,34 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         budgetPopup.toolTip = "Maximum tokens a thinking model may spend reasoning before it must answer (--reasoning-budget). Works for Qwen3, DeepSeek-R1 and other thinking models. Off = answer without thinking."
         content.addSubview(budgetPopup)
         addHint("any thinking model", x: 340, y: y, to: content)
+        y -= 34
+
+        // ── Parallel requests row ──
+        addLabel("Parallel:", x: 16, y: y - 2, width: 110, to: content)
+        parallelPopup = NSPopUpButton(frame: NSRect(x: 130, y: y, width: 200, height: 24))
+        parallelPopup.addItems(withTitles: SettingsWindowController.parallelOptions.map { $0.title })
+        parallelPopup.toolTip = "How many requests the server handles at once (-np). Auto lets llama.cpp decide (4 slots sharing one KV cache). 1 suits a single user with one app; choose more if several apps or people use the server at the same time (e.g. Open WebUI generates titles in parallel)."
+        content.addSubview(parallelPopup)
+        addHint("requests at once", x: 340, y: y, to: content)
+        y -= 34
+
+        // ── MTP row ──
+        addLabel("MTP:", x: 16, y: y - 2, width: 110, to: content)
+        mtpPopup = NSPopUpButton(frame: NSRect(x: 130, y: y, width: 200, height: 24))
+        mtpPopup.addItems(withTitles: SettingsWindowController.mtpOptions.map { $0.title })
+        mtpPopup.target = self
+        mtpPopup.action = #selector(mtpChanged(_:))
+        mtpPopup.toolTip = "Multi-token prediction: models that ship MTP heads can draft several tokens per step (--spec-type draft-mtp), often ~2x faster generation. The main model checks every draft, so output quality is unchanged."
+        content.addSubview(mtpPopup)
+        mtpDraftPopup = NSPopUpButton(frame: NSRect(x: 340, y: y, width: 60, height: 24))
+        mtpDraftPopup.addItems(withTitles: SettingsWindowController.mtpDraftValues)
+        mtpDraftPopup.toolTip = "Draft tokens per step (--spec-draft-n-max). 4 is a good default; more can be slower when drafts get rejected."
+        content.addSubview(mtpDraftPopup)
+        mtpHint = NSTextField(labelWithString: "")
+        mtpHint.frame = NSRect(x: 406, y: y + 2, width: 110, height: 18)
+        mtpHint.font = NSFont.systemFont(ofSize: 11)
+        mtpHint.textColor = .secondaryLabelColor
+        content.addSubview(mtpHint)
         y -= 36
 
         // ── Separator ──
@@ -547,6 +595,67 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         } else {
             budgetPopup.selectItem(at: 0)
         }
+
+        // Parallel slots (keep a hand-edited value as its own entry).
+        while parallelPopup.numberOfItems > SettingsWindowController.parallelOptions.count {
+            parallelPopup.removeItem(at: parallelPopup.numberOfItems - 1)
+        }
+        if let idx = SettingsWindowController.parallelOptions.firstIndex(where: { $0.value == sm.parallel }) {
+            parallelPopup.selectItem(at: idx)
+        } else if !sm.parallel.isEmpty, sm.parallel.allSatisfy({ $0.isNumber }) {
+            parallelPopup.addItem(withTitle: sm.parallel)
+            parallelPopup.lastItem?.representedObject = sm.parallel
+            parallelPopup.selectItem(at: parallelPopup.numberOfItems - 1)
+        } else {
+            parallelPopup.selectItem(at: 0)
+        }
+
+        // MTP mode and draft count.
+        mtpPopup.selectItem(at: sm.mtp == "off" ? 1 : 0)
+        while mtpDraftPopup.numberOfItems > SettingsWindowController.mtpDraftValues.count {
+            mtpDraftPopup.removeItem(at: mtpDraftPopup.numberOfItems - 1)
+        }
+        if let idx = SettingsWindowController.mtpDraftValues.firstIndex(of: sm.mtpDraft) {
+            mtpDraftPopup.selectItem(at: idx)
+        } else if sm.mtpDraft.allSatisfy({ $0.isNumber }), !sm.mtpDraft.isEmpty {
+            mtpDraftPopup.addItem(withTitle: sm.mtpDraft)
+            mtpDraftPopup.lastItem?.representedObject = sm.mtpDraft
+            mtpDraftPopup.selectItem(at: mtpDraftPopup.numberOfItems - 1)
+        } else {
+            mtpDraftPopup.selectItem(withTitle: "4")
+        }
+        updateMtpControls()
+    }
+
+    private func currentParallel() -> String {
+        let i = parallelPopup.indexOfSelectedItem
+        let opts = SettingsWindowController.parallelOptions
+        if i >= 0 && i < opts.count { return opts[i].value }
+        return (parallelPopup.selectedItem?.representedObject as? String) ?? ""
+    }
+
+    private func currentMtp() -> String {
+        let i = mtpPopup.indexOfSelectedItem
+        let opts = SettingsWindowController.mtpOptions
+        return (i >= 0 && i < opts.count) ? opts[i].value : "auto"
+    }
+
+    private func currentMtpDraft() -> String {
+        if let custom = mtpDraftPopup.selectedItem?.representedObject as? String { return custom }
+        return mtpDraftPopup.titleOfSelectedItem ?? "4"
+    }
+
+    @objc private func mtpChanged(_ sender: NSPopUpButton) {
+        updateMtpControls()
+    }
+
+    /// Shows whether the active model has MTP heads and enables the draft
+    /// selector only when MTP will actually be used.
+    private func updateMtpControls() {
+        let hasMTP = ConfigManager.detectMTP(modelPath: ServerManager.shared.modelPath) == "1"
+        mtpHint.stringValue = hasMTP ? "✓ model has MTP" : "no MTP heads"
+        mtpHint.textColor = hasMTP ? .systemGreen : .secondaryLabelColor
+        mtpDraftPopup.isEnabled = hasMTP && currentMtp() != "off"
     }
 
     private func currentReasoningEffort() -> String {
@@ -652,10 +761,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         var approx: Bool
         var modelCtx: Int? = nil
         if let meta = GGUFInfo.read(path: sm.modelPath), meta.isComplete,
-           let nLayer = meta.blockCount, let nKV = meta.headCountKV, let kDim = meta.effectiveKeyLength {
-            let kvBytes = 2.0 * Double(nLayer) * Double(nKV) * Double(kDim) * Double(ctxVal) * kvBytesPerElement(cacheType)
+           let kvHeads = meta.totalKVHeads, let kDim = meta.effectiveKeyLength {
+            // K and V, for every KV head of every layer that keeps a KV cache
+            // (hybrid models skip their recurrent layers).
+            let kvBytes = 2.0 * Double(kvHeads) * Double(kDim) * Double(ctxVal) * kvBytesPerElement(cacheType)
             ctxGB = kvBytes / 1_000_000_000.0
-            approx = false
+            approx = meta.isApproximate
             modelCtx = meta.contextLength
         } else {
             // Fallback: the old heuristic (~30% of model at 8k), clearly marked.
@@ -741,6 +852,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                 threadsBatch: currentThreadsBatch(),
                 reasoningEffort: currentReasoningEffort(),
                 reasoningBudget: currentReasoningBudget(),
+                mtp: currentMtp(),
+                mtpDraft: currentMtpDraft(),
+                parallel: currentParallel(),
                 profile: currentProfile()
             )
             window.close()

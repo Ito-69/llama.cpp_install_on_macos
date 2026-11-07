@@ -27,6 +27,14 @@ jobs:
           bash -n llamamate/Resources/llama-server-start.sh
           bash -n release.sh
 
+      - name: GGUF parser tests
+        run: |
+          set -euo pipefail
+          cd llamamate/Tests/gguf
+          python3 make_fixtures.py "$RUNNER_TEMP/gguf-fixtures"
+          swiftc -O ../../Sources/llmctl/GGUFInfo.swift main.swift -o "$RUNNER_TEMP/gguf-test"
+          "$RUNNER_TEMP/gguf-test" "$RUNNER_TEMP/gguf-fixtures"
+
       - name: Build app (universal)
         run: cd llamamate && ./build.sh
 
