@@ -247,13 +247,13 @@ final class ConfigManager {
 
     // MARK: Apply changes (write + reload + restart)
 
-    func apply(_ config: ServerConfig) throws {
+    func apply(_ config: ServerConfig, forceRestart: Bool = false) throws {
         // Restarting clears llama-server's prompt cache (a long agent prompt can
         // take a minute to process again), so only restart when something
         // actually changed — or when the server is not running.
         let changed = config != read()
         try write(config)
-        if changed || ServerManager.shared.state == .stopped {
+        if changed || forceRestart || ServerManager.shared.state == .stopped {
             ServerManager.shared.reloadConfigAndRestart()
         }
     }
@@ -326,6 +326,64 @@ final class ConfigManager {
         }
         writeLocalConfigTemplateIfMissing()
         return backupPath
+    }
+
+    // MARK: server.local.conf — EXTRA_ARGS
+
+    /// EXTRA_ARGS from server.local.conf ("" if not set). Like bash, the last
+    /// assignment wins; commented lines are ignored.
+    func readExtraArgs() -> String {
+        guard let content = try? String(contentsOfFile: localConfigPath, encoding: .utf8) else { return "" }
+        var value = ""
+        for line in content.components(separatedBy: .newlines) {
+            guard let rhs = Self.extraArgsAssignment(line) else { continue }
+            value = Self.unquote(rhs)
+        }
+        return value
+    }
+
+    /// The right-hand side of an `EXTRA_ARGS=` / `export EXTRA_ARGS=` line.
+    private static func extraArgsAssignment(_ line: String) -> String? {
+        var t = line.trimmingCharacters(in: .whitespaces)
+        if t.hasPrefix("#") { return nil }
+        if t.hasPrefix("export ") { t = String(t.dropFirst(7)).trimmingCharacters(in: .whitespaces) }
+        guard t.hasPrefix("EXTRA_ARGS=") else { return nil }
+        return String(t.dropFirst("EXTRA_ARGS=".count))
+    }
+
+    /// Sets EXTRA_ARGS in server.local.conf and leaves every other line as the
+    /// user wrote it. An empty value removes the assignment. Returns true if
+    /// the effective value changed.
+    @discardableResult
+    func writeExtraArgs(_ raw: String) throws -> Bool {
+        let value = raw
+            .replacingOccurrences(of: "\r", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespaces)
+        guard value != readExtraArgs() else { return false }
+
+        writeLocalConfigTemplateIfMissing()
+        let content = (try? String(contentsOfFile: localConfigPath, encoding: .utf8)) ?? ""
+        var lines = content.components(separatedBy: "\n")
+        if lines.last == "" { lines.removeLast() }
+
+        let assignment = "EXTRA_ARGS=\"\(q(value))\""
+        var replaced = false
+        lines = lines.compactMap { line in
+            guard Self.extraArgsAssignment(line) != nil else { return line }
+            if replaced { return nil }            // drop duplicates
+            replaced = true
+            return value.isEmpty ? nil : assignment
+        }
+        if !replaced && !value.isEmpty {
+            lines.append(assignment)
+        }
+
+        try FileManager.default.createDirectory(atPath: (localConfigPath as NSString).deletingLastPathComponent,
+                                                withIntermediateDirectories: true)
+        try (lines.joined(separator: "\n") + "\n").write(toFile: localConfigPath, atomically: true, encoding: .utf8)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: localConfigPath)
+        return true
     }
 
     /// Creates a commented server.local.conf once. Never touches an existing one.
