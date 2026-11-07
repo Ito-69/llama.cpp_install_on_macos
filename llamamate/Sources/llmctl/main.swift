@@ -72,8 +72,25 @@ func migrateStartScriptIfOutdated() {
     let bundled = resPath + "/llama-server-start.sh"
     guard let bundledData = fm.contents(atPath: bundled),
           let installedData = fm.contents(atPath: INSTALLED_START_SCRIPT) else { return }
-    if bundledData != installedData {
-        try? ConfigManager.shared.writeStartScript()
+    if bundledData != installedData,
+       let backup = (try? ConfigManager.shared.writeStartScript()) ?? nil {
+        notifyStartScriptBackup(backup)
+    }
+}
+
+/// Tells the user that their hand-edited start script was replaced and where
+/// the copy is, and how to keep custom flags across updates.
+func notifyStartScriptBackup(_ path: String) {
+    DispatchQueue.main.async {
+        let alert = NSAlert()
+        alert.messageText = "Your edited start script was saved"
+        alert.informativeText = "LlamaMate updated ~/.local/bin/llama-server-start.sh. Your edited copy was saved as:\n\n\(path)\n\nTo keep custom llama-server flags across updates, put them in ~/.config/llama/server.local.conf, for example:\n\nEXTRA_ARGS=\"-np 1\"\n\nLlamaMate never overwrites that file."
+        alert.addButton(withTitle: "Show in Finder")
+        alert.addButton(withTitle: "OK")
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn {
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+        }
     }
 }
 
@@ -85,6 +102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         KeychainStore.migrateHFTokenFromDefaultsIfNeeded()
         copyBundledScript()
         migrateStartScriptIfOutdated()
+        if isInstalled() { ConfigManager.shared.writeLocalConfigTemplateIfMissing() }
         // brew upgrade deletes the LaunchAgent plist; put it back (file only —
         // the server is not started here).
         ServerManager.shared.ensureLaunchAgentPlist()

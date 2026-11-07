@@ -307,6 +307,15 @@ save_config() {
     *) warn "Invalid REASONING_EFFORT='${REASONING_EFFORT}'; using default"; REASONING_EFFORT="default" ;;
   esac
 
+  # Keep KEY=… / export KEY=… lines that LlamaMate does not manage (e.g. a
+  # user's EXTRA_ARGS), so rewriting the file never drops them.
+  local preserved=""
+  if [[ -f "$CONFIG_FILE" ]]; then
+    preserved="$(grep -E '^[[:space:]]*(export[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*=' "$CONFIG_FILE" \
+      | grep -vE '^[[:space:]]*(export[[:space:]]+)?(LLAMA_VERSION|MODEL_LABEL|MODEL_REPO|MODEL_FILE|MODEL_PATH|PORT|CONTEXT|HOST|API_KEY|NGL|FA|CTK|CTV|THREADS|BATCH_SIZE|UBATCH_SIZE|CACHE_REUSE|MLOCK|THREADS_BATCH|REASONING_EFFORT|REASONING_BUDGET|PROFILE)=' \
+      || true)"
+  fi
+
   # Every field is written quoted and escaped so a re-`source` can never
   # execute embedded shell.
   cat > "$CONFIG_FILE" <<EOF
@@ -335,6 +344,9 @@ REASONING_BUDGET="$(sh_escape "${REASONING_BUDGET:-}")"
 PROFILE="$(sh_escape "${PROFILE:-balanced}")"
 EOF
   # May contain an API key — keep it owner-only.
+  if [[ -n "$preserved" ]]; then
+    printf '\n# ── Preserved (not managed by LlamaMate) ──\n%s\n' "$preserved" >> "$CONFIG_FILE"
+  fi
   chmod 600 "$CONFIG_FILE" 2>/dev/null || true
 }
 
@@ -1152,6 +1164,56 @@ show_status() {
 }
 
 # ── LaunchAgent (auto-start) ──────────────────────────────────────────────────
+# ── Start script install (keeps user edits) ─────────────────────────────────
+# SHA-256 of start scripts shipped by LlamaMate, so an unmodified older copy is
+# replaced silently. Keep in sync with ConfigManager.knownShippedStartScriptHashes.
+KNOWN_START_SCRIPT_HASHES="66488562d9ebb401d0517417c77488f239016cea5e6272ee9c66f70467257c72 cdfe5ee9e1ff5335038f811d68b589030b4b55067a0ca4ebbe50a82dae32f706"
+START_SCRIPT_HASH_FILE="${CONFIG_DIR}/.start-script.sha256"
+LOCAL_CONFIG_FILE="${CONFIG_DIR}/server.local.conf"
+
+sha256_of() { shasum -a 256 "$1" 2>/dev/null | awk '{print $1}'; }
+
+# Copies $1 over the start script. If the installed script was edited by hand
+# (not identical to $1, not a known shipped version and not the last version
+# we installed), it is first saved as llama-server-start.sh.user-<timestamp>.
+install_start_script() {
+  local new="$1" cur stored bak
+  if [[ -f "$START_SCRIPT" ]] && ! cmp -s "$new" "$START_SCRIPT"; then
+    cur="$(sha256_of "$START_SCRIPT")"
+    stored="$(cat "$START_SCRIPT_HASH_FILE" 2>/dev/null || true)"
+    if [[ "$cur" != "$stored" && " ${KNOWN_START_SCRIPT_HASHES} " != *" ${cur} "* ]]; then
+      bak="${START_SCRIPT}.user-$(date +%Y%m%d-%H%M%S)"
+      cp -p "$START_SCRIPT" "$bak"
+      warn "Your edited start script was saved as: ${bak}"
+      warn "Put custom flags in ${LOCAL_CONFIG_FILE} (EXTRA_ARGS) — that file is never overwritten."
+    fi
+  fi
+  cp -f "$new" "$START_SCRIPT"
+  chmod +x "$START_SCRIPT"
+  mkdir -p "$CONFIG_DIR"
+  sha256_of "$START_SCRIPT" > "$START_SCRIPT_HASH_FILE" 2>/dev/null || true
+  write_local_config_template
+}
+
+# Creates a commented server.local.conf once; never touches an existing one.
+write_local_config_template() {
+  [[ -e "$LOCAL_CONFIG_FILE" ]] && return 0
+  mkdir -p "$CONFIG_DIR"
+  cat > "$LOCAL_CONFIG_FILE" <<'LOCALCONF'
+# server.local.conf — your own llama-server settings.
+# LlamaMate never writes or overwrites this file, so it survives updates.
+# It is read after server.conf, before the server starts.
+#
+# Extra llama-server flags (space-separated; values with spaces not supported):
+# EXTRA_ARGS="-np 1"
+#
+# Many llama-server options can also be set as environment variables
+# (used only when LlamaMate does not pass that flag itself):
+# export LLAMA_ARG_N_PARALLEL=1
+LOCALCONF
+  chmod 600 "$LOCAL_CONFIG_FILE" 2>/dev/null || true
+}
+
 write_start_script() {
   load_config
   mkdir -p "$(dirname "$START_SCRIPT")"
@@ -1161,15 +1223,16 @@ write_start_script() {
   # it is not found, so there is a single source of truth in normal use.
   local src="${SCRIPT_DIR}/llama-server-start.sh"
   if [[ -f "$src" ]]; then
-    cp -f "$src" "$START_SCRIPT"
-    chmod +x "$START_SCRIPT"
+    install_start_script "$src"
     ok "Start script (bundled): ${START_SCRIPT}"
     return 0
   fi
 
   # Fallback — keep byte-for-byte in sync with
   # llamamate/Resources/llama-server-start.sh
-  cat > "$START_SCRIPT" <<'SCRIPT'
+  local tmp
+  tmp="$(mktemp "${START_SCRIPT}.new.XXXXXX")"
+  cat > "$tmp" <<'SCRIPT'
 #!/usr/bin/env bash
 #
 # llama-server-start.sh — launches llama-server from ~/.config/llama/server.conf
@@ -1184,6 +1247,12 @@ set -euo pipefail
 
 CONFIG="${HOME}/.config/llama/server.conf"
 [[ -f "$CONFIG" ]] && source "$CONFIG"
+
+# User-owned overrides. LlamaMate never writes this file, so anything here
+# survives app and llama.cpp updates. Loaded before validation, so its values
+# are checked like the rest. Use it for EXTRA_ARGS or `export LLAMA_ARG_*=…`.
+LOCAL_CONFIG="${HOME}/.config/llama/server.local.conf"
+[[ -f "$LOCAL_CONFIG" ]] && source "$LOCAL_CONFIG"
 
 BIN="${LLAMA_SERVER_BIN:-${HOME}/.local/bin/llama-server}"
 export PATH="${HOME}/.local/bin:${PATH}"
@@ -1260,10 +1329,15 @@ ARGS=(
   --host "${HOST:-127.0.0.1}"
   -ngl "${NGL:-99}"
   -fa "${FA_VAL}"
-  -t "${THREADS:-0}"
   -b "${BATCH_SIZE:-2048}"
   -ub "${UBATCH_SIZE:-512}"
 )
+
+# Threads: 0/empty = let llama.cpp choose (it picks the performance cores).
+# Passing "-t 0" would make llama.cpp use *all* cores, efficiency cores too.
+if [[ -n "${THREADS:-}" && "${THREADS}" != "0" ]]; then
+  ARGS+=( -t "${THREADS}" )
+fi
 
 # KV cache type flags, only if this build understands them.
 if supports '--cache-type-k' || supports '-ctk,'; then
@@ -1340,6 +1414,20 @@ if [[ -n "${REASONING_BUDGET:-}" ]] && supports '--reasoning-budget'; then
   fi
 fi
 
+# ── User extra flags ─────────────────────────────────────────────────────────
+# EXTRA_ARGS (best kept in server.local.conf) is appended last, so it can also
+# override anything above. Space-separated; values containing spaces are not
+# supported. Flags are passed as-is: an unknown flag stops the server, and the
+# error shows in the server log.
+if [[ -n "${EXTRA_ARGS:-}" ]]; then
+  EXTRA=()
+  read -r -a EXTRA <<< "${EXTRA_ARGS}" || true
+  if [[ ${#EXTRA[@]} -gt 0 ]]; then
+    ARGS+=( "${EXTRA[@]}" )
+    echo "[LlamaMate] Extra flags (EXTRA_ARGS): ${EXTRA[*]}" >&2
+  fi
+fi
+
 # ── Log rotation ─────────────────────────────────────────────────────────────
 # launchd opens the log files in append mode, so trimming them here (before the
 # server starts writing) is safe: subsequent writes go to the new EOF.
@@ -1360,7 +1448,8 @@ rotate_log "${HOME}/Library/Logs/llama-server.err.log"
 
 exec "$BIN" "${ARGS[@]}"
 SCRIPT
-  chmod +x "$START_SCRIPT"
+  install_start_script "$tmp"
+  rm -f "$tmp"
   ok "Start script (embedded fallback): ${START_SCRIPT}"
 }
 

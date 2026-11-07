@@ -13,6 +13,12 @@ set -euo pipefail
 CONFIG="${HOME}/.config/llama/server.conf"
 [[ -f "$CONFIG" ]] && source "$CONFIG"
 
+# User-owned overrides. LlamaMate never writes this file, so anything here
+# survives app and llama.cpp updates. Loaded before validation, so its values
+# are checked like the rest. Use it for EXTRA_ARGS or `export LLAMA_ARG_*=…`.
+LOCAL_CONFIG="${HOME}/.config/llama/server.local.conf"
+[[ -f "$LOCAL_CONFIG" ]] && source "$LOCAL_CONFIG"
+
 BIN="${LLAMA_SERVER_BIN:-${HOME}/.local/bin/llama-server}"
 export PATH="${HOME}/.local/bin:${PATH}"
 export DYLD_LIBRARY_PATH="${HOME}/.local/lib:${DYLD_LIBRARY_PATH:-}"
@@ -88,10 +94,15 @@ ARGS=(
   --host "${HOST:-127.0.0.1}"
   -ngl "${NGL:-99}"
   -fa "${FA_VAL}"
-  -t "${THREADS:-0}"
   -b "${BATCH_SIZE:-2048}"
   -ub "${UBATCH_SIZE:-512}"
 )
+
+# Threads: 0/empty = let llama.cpp choose (it picks the performance cores).
+# Passing "-t 0" would make llama.cpp use *all* cores, efficiency cores too.
+if [[ -n "${THREADS:-}" && "${THREADS}" != "0" ]]; then
+  ARGS+=( -t "${THREADS}" )
+fi
 
 # KV cache type flags, only if this build understands them.
 if supports '--cache-type-k' || supports '-ctk,'; then
@@ -165,6 +176,20 @@ if [[ -n "${REASONING_BUDGET:-}" ]] && supports '--reasoning-budget'; then
     fi
   else
     echo "[LlamaMate] This llama-server only supports a thinking limit of 0 (off); update llama.cpp for token limits. Skipping." >&2
+  fi
+fi
+
+# ── User extra flags ─────────────────────────────────────────────────────────
+# EXTRA_ARGS (best kept in server.local.conf) is appended last, so it can also
+# override anything above. Space-separated; values containing spaces are not
+# supported. Flags are passed as-is: an unknown flag stops the server, and the
+# error shows in the server log.
+if [[ -n "${EXTRA_ARGS:-}" ]]; then
+  EXTRA=()
+  read -r -a EXTRA <<< "${EXTRA_ARGS}" || true
+  if [[ ${#EXTRA[@]} -gt 0 ]]; then
+    ARGS+=( "${EXTRA[@]}" )
+    echo "[LlamaMate] Extra flags (EXTRA_ARGS): ${EXTRA[*]}" >&2
   fi
 fi
 
