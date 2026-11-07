@@ -85,7 +85,7 @@
     {
       "id": "huihui-ai/Huihui-Qwen3.6-27B-abliterated-MTP-GGUF",
       "name": "Qwen3.6 27B abliterated (MTP)",
-      "sizeGB": 17.1,
+      "sizeGB": 16.8,
       "minRAM": 24,
       "mtp": true,
       "description": "Uncensored (abliterated) Qwen3.6 27B by huihui-ai, with MTP heads."
@@ -93,7 +93,7 @@
     {
       "id": "huihui-ai/Huihui-Qwen3.6-35B-A3B-abliterated-MTP-GGUF",
       "name": "Qwen3.6 35B A3B abliterated (MTP)",
-      "sizeGB": 22.1,
+      "sizeGB": 21.7,
       "minRAM": 32,
       "mtp": true,
       "description": "Uncensored (abliterated) Qwen3.6 35B MoE by huihui-ai, with MTP heads."
@@ -109,7 +109,7 @@
     {
       "id": "mradermacher/Huihui-gemma-4-12B-it-qat-q4_0-unquantized-abliterated-i1-GGUF",
       "name": "Gemma 4 12B abliterated",
-      "sizeGB": 7.3,
+      "sizeGB": 7.4,
       "minRAM": 16,
       "description": "Uncensored (abliterated) Gemma 4 12B, quantized by mradermacher."
     },
