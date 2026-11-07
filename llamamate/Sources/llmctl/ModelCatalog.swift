@@ -29,6 +29,9 @@ struct CuratedModel: Decodable {
 
 private struct CatalogFile: Decodable {
     let version: Int
+    /// Goes up with every catalog change; decides between the cached download
+    /// and the copy built into the app.
+    let revision: Int?
     let models: [CuratedModel]
     /// Opt-in list. A separate key so app versions without the opt-in
     /// (v2.5.3) never show these entries.
@@ -36,6 +39,7 @@ private struct CatalogFile: Decodable {
 }
 
 private struct Catalog {
+    var revision: Int
     var models: [CuratedModel]
     var community: [CuratedModel]
 }
@@ -59,10 +63,24 @@ final class ModelCatalog {
     private(set) var community: [CuratedModel] = []
 
     private init() {
-        let catalog = Self.load(path: cachePath) ?? bundledPath.flatMap { Self.load(path: $0) }
+        // Use the newer of the cached download and the built-in copy. The cache
+        // used to win unconditionally, so a cache written by an older app version
+        // could hide entries a newer app ships with (e.g. the community list).
+        let cached = Self.load(path: cachePath)
+        let bundled = bundledPath.flatMap { Self.load(path: $0) }
+        let catalog: Catalog?
+        switch (cached, bundled) {
+        case let (c?, b?): catalog = b.revision > c.revision ? b : c
+        case let (c?, nil): catalog = c
+        case let (nil, b?): catalog = b
+        case (nil, nil):    catalog = nil
+        }
         models = catalog?.models ?? []
         community = catalog?.community ?? []
+        revision = catalog?.revision ?? 0
     }
+
+    private(set) var revision = 0
 
     private static func decode(_ data: Data) -> Catalog? {
         guard let file = try? JSONDecoder().decode(CatalogFile.self, from: data),
@@ -72,7 +90,7 @@ final class ModelCatalog {
             c.isCommunity = true
             return c
         }
-        return Catalog(models: file.models, community: community)
+        return Catalog(revision: file.revision ?? 0, models: file.models, community: community)
     }
 
     private static func load(path: String) -> Catalog? {
@@ -82,9 +100,10 @@ final class ModelCatalog {
 
     /// Downloads the latest catalog if the cached one is older than the refresh
     /// interval. `completion(true)` (main thread) when the list changed.
-    func refreshIfStale(completion: @escaping (Bool) -> Void) {
+    /// `force` skips the age check (used when the user turns on community models).
+    func refreshIfStale(force: Bool = false, completion: @escaping (Bool) -> Void) {
         let attrs = try? FileManager.default.attributesOfItem(atPath: cachePath)
-        if let modified = attrs?[.modificationDate] as? Date,
+        if !force, let modified = attrs?[.modificationDate] as? Date,
            Date().timeIntervalSince(modified) < Self.refreshInterval {
             return
         }
@@ -108,6 +127,7 @@ final class ModelCatalog {
                     || all.map(\.description) != old.map(\.description)
                 self.models = fresh.models
                 self.community = fresh.community
+                self.revision = fresh.revision
                 completion(changed)
             }
         }.resume()
