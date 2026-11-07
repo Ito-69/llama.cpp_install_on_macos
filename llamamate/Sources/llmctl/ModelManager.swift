@@ -17,6 +17,8 @@ final class ModelDownloadSession {
     private let coordinator: DownloadCoordinator
     init(coordinator: DownloadCoordinator) { self.coordinator = coordinator }
     func cancel() { coordinator.cancel() }
+    /// HTTP status of a failed download (e.g. 401/403/429), if that's why it stopped.
+    var failureStatus: Int? { coordinator.failureStatus }
 }
 
 /// One part of a (possibly split) GGUF download.
@@ -198,6 +200,8 @@ final class DownloadCoordinator: NSObject, URLSessionDataDelegate {
     private var session: URLSession!
     private var currentTask: URLSessionDataTask?
     private var cancelled = false
+    /// Set when a part fails with a non-2xx HTTP status; read after completion.
+    private(set) var failureStatus: Int?
     private var finished = false
 
     private let totalExpected: Int64
@@ -328,7 +332,7 @@ final class DownloadCoordinator: NSObject, URLSessionDataDelegate {
         }
         var req = URLRequest(url: url)
         req.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
-        if let token = KeychainStore.hfToken { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        if let token = HFToken.value { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         if existing > 0 {
             req.setValue("bytes=\(existing)-", forHTTPHeaderField: "Range")
             emitLog("Resuming \(name) from \(existing) bytes\n")
@@ -395,6 +399,7 @@ final class DownloadCoordinator: NSObject, URLSessionDataDelegate {
         // Any other status (401/403/404/5xx…): don't touch the file, keep the
         // partial download for a later retry.
         emitLog("\nDownload failed with HTTP \(code).\n")
+        failureStatus = code
         completionHandler(.cancel)
         finish(false)
     }

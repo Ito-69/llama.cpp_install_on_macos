@@ -41,7 +41,7 @@ brew install --cask llamamate
 1. Download `LlamaMate-<version>.dmg` from [GitHub Releases](https://github.com/Ito-69/llama.cpp_install_on_macos/releases).
 2. Open it and drag `LlamaMate.app` to **Applications**.
 
-Then open **LlamaMate** and click **Install** in the welcome dialog. It downloads llama.cpp and a model, sets up the background service and starts the server. You can paste a free [Hugging Face token](https://huggingface.co/settings/tokens) when asked — downloads without one are rate-limited.
+Then open **LlamaMate** and click **Install** in the welcome dialog. It downloads llama.cpp and a model, sets up the background service and starts the server. No account is needed — see [Hugging Face token](#hugging-face-token) for when one helps.
 
 > [!NOTE]
 > ### First launch & Gatekeeper
@@ -102,7 +102,16 @@ The llama icon shows the server state: **full** = running, **half-faded** = load
 
 Downloads go to `~/models/` and can be cancelled and resumed — even after quitting the app. A file is only saved once its size matches Hugging Face's, and a download won't start without enough free disk space.
 
-> Your Hugging Face token is stored in the macOS Keychain (item `com.llamamate.app` / `hf_token`). It's requested during the first install; there is no in-app setting to change it yet — you can edit or delete that item in **Keychain Access**.
+### Hugging Face token
+
+You don't need one for public models — including the default one and most GGUF repos (bartowski, unsloth, ggml-org…). A free [token](https://huggingface.co/settings/tokens) (Read access) helps in two cases:
+
+- **Gated models** (for example official Llama or Gemma repos) — you also accept the licence on the model's page.
+- **Download limits** — Hugging Face limits requests from networks without a login.
+
+LlamaMate doesn't ask for it up front. When Hugging Face says a login, a licence or a higher limit is needed, it explains what happened and offers **Add Token…** / **Open Model Page**. Anytime, use **Hugging Face: Set Token…** at the top right of the Models window: paste, **Test** (shows the account name), **Save** or **Remove Token**. The token is stored in your macOS Keychain.
+
+Already logged in with the Hugging Face CLI (`hf auth login`)? LlamaMate uses that token automatically (`~/.cache/huggingface/token`, or `HF_HOME` / `HF_TOKEN_PATH`) unless you save a different one.
 
 ## Server Settings
 
@@ -183,7 +192,7 @@ Restart the server after editing. Also kept across updates:
 - Turn on **Allow access from local network** to use it from other devices, and set an **API key**. The key is passed with `--api-key-file`, so it doesn't show up in the process list.
 - `/health` stays open without a key so the app can show the server state.
 - `server.conf` and the key file are readable only by your user (`0600`); every value is quoted and validated before the start script uses it.
-- Your Hugging Face token is in the Keychain, not in a plain-text preferences file.
+- Your Hugging Face token is in the Keychain, not in a plain-text preferences file. It's sent only to huggingface.co.
 
 ## Updating
 

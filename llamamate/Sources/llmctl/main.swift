@@ -453,7 +453,7 @@ func runProcess(executable: String, arguments: [String], currentDirectory: Strin
     task.arguments = arguments
     var env = ProcessInfo.processInfo.environment
     env["DYLD_LIBRARY_PATH"] = NSHomeDirectory() + "/.local/lib"
-    if let hfToken = KeychainStore.hfToken {
+    if let hfToken = HFToken.value {
         env["HF_TOKEN"] = hfToken
     }
     task.environment = env
@@ -529,30 +529,6 @@ func runProcess(executable: String, arguments: [String], currentDirectory: Strin
     return (task.terminationStatus, fullOutput)
 }
 
-// MARK: - Hugging Face Token
-
-func promptForHfTokenIfNeeded() {
-    guard KeychainStore.hfToken == nil else { return }
-
-    let alert = NSAlert()
-    alert.messageText = "Hugging Face Token"
-    alert.informativeText = "Model downloads are rate-limited without a Hugging Face token.\n\nYou can get a free token at:\nhttps://huggingface.co/settings/tokens\n\nPaste your token below or leave empty to continue with slower downloads."
-    alert.addButton(withTitle: "Save")
-    alert.addButton(withTitle: "Skip")
-
-    let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 22))
-    textField.placeholderString = "hf_..."
-    alert.accessoryView = textField
-
-    let response = alert.runModal()
-    if response == .alertFirstButtonReturn {
-        let token = textField.stringValue.trimmingCharacters(in: .whitespaces)
-        if !token.isEmpty {
-            KeychainStore.setHFToken(token)
-        }
-    }
-}
-
 // MARK: - Install Manager
 
 final class InstallManager: NSObject {
@@ -560,8 +536,8 @@ final class InstallManager: NSObject {
     private var activeControllers: [OutputWindowController] = []
 
     func install(completion: @escaping (Bool) -> Void) {
-        promptForHfTokenIfNeeded()
-
+        // No token prompt here: public models (including the default one) don't
+        // need it. The Models window asks for one only when Hugging Face does.
         let controller = OutputWindowController(title: "Installing llama.cpp…", showApplyInitially: false)
         activeControllers.append(controller)
         controller.show()
