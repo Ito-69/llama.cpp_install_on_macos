@@ -17,7 +17,7 @@ import urllib.parse
 import urllib.request
 
 CATALOG = sys.argv[1] if len(sys.argv) > 1 else "catalog/models.json"
-PREFERRED = ["Q4_K_M", "UD-Q4_K_XL", "Q4_K_XL", "MXFP4", "Q4_0", "Q4_K_S", "IQ4_XS", "Q4_1"]
+PREFERRED = ["Q4_K_M", "UD-Q4_K_XL", "Q4_K_XL", "Q4_K", "MXFP4", "Q4_0", "Q4_K_S", "IQ4_XS", "Q4_1"]
 TOLERANCE = 0.20
 SPLIT = re.compile(r"-(\d{5})-of-(\d{5})\.gguf$")
 
