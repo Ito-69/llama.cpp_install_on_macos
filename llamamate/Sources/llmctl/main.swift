@@ -85,6 +85,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         KeychainStore.migrateHFTokenFromDefaultsIfNeeded()
         copyBundledScript()
         migrateStartScriptIfOutdated()
+        // brew upgrade deletes the LaunchAgent plist; put it back (file only —
+        // the server is not started here).
+        ServerManager.shared.ensureLaunchAgentPlist()
         _ = MenuBarController.shared
     }
 }
@@ -249,11 +252,73 @@ final class ServerManager {
         task.resume()
     }
 
+    /// `brew upgrade` runs the old cask's `uninstall launchctl:` directive,
+    /// which unloads the agent AND deletes its plist. Recreate the plist (same
+    /// content as `write_launch_agent_files` in install-llama.sh) whenever
+    /// llama.cpp is installed but the plist is missing. Only writes the file —
+    /// it never loads or starts the server. Returns true if the plist exists.
+    @discardableResult
+    func ensureLaunchAgentPlist() -> Bool {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: launchAgentPlist) { return true }
+
+        let home = NSHomeDirectory()
+        let startScript = home + "/.local/bin/llama-server-start.sh"
+        guard fm.isExecutableFile(atPath: home + "/.local/bin/llama-server"),
+              fm.fileExists(atPath: CONFIG_PATH) else { return false }
+        if !fm.fileExists(atPath: startScript) {
+            try? ConfigManager.shared.writeStartScript()
+        }
+
+        let plist: [String: Any] = [
+            "Label": "com.llama.cpp.server",
+            "ProgramArguments": [startScript],
+            "RunAtLoad": true,
+            "KeepAlive": true,
+            "ThrottleInterval": 10,
+            "StandardOutPath": home + "/Library/Logs/llama-server.log",
+            "StandardErrorPath": home + "/Library/Logs/llama-server.err.log",
+            "EnvironmentVariables": [
+                "PATH": home + "/.local/bin:/usr/local/bin:/usr/bin:/bin",
+                "DYLD_LIBRARY_PATH": home + "/.local/lib",
+            ],
+        ]
+        do {
+            try fm.createDirectory(atPath: (launchAgentPlist as NSString).deletingLastPathComponent,
+                                   withIntermediateDirectories: true)
+            try fm.createDirectory(atPath: home + "/Library/Logs", withIntermediateDirectories: true)
+            let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+            try data.write(to: URL(fileURLWithPath: launchAgentPlist), options: .atomic)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private var isAgentLoaded: Bool {
+        launchctl("print", launchAgentService).status == 0
+    }
+
     func startServer() {
         workQueue.async {
-            self.launchctl("bootstrap", "gui/\(getuid())", self.launchAgentPlist)
-            self.launchctl("enable", self.launchAgentService)
-            self.launchctl("kickstart", self.launchAgentService)
+            guard self.ensureLaunchAgentPlist() else {
+                self.reportError("Could not start the server",
+                                 "llama.cpp is not installed, or the LaunchAgent could not be created at:\n\(self.launchAgentPlist)\n\nUse Check for llama.cpp Update… or reinstall llama.cpp.")
+                return
+            }
+            if self.isAgentLoaded {
+                // Already loaded (e.g. KeepAlive gave up): just (re)start it.
+                self.launchctl("enable", self.launchAgentService)
+                self.launchctl("kickstart", self.launchAgentService)
+            } else {
+                self.launchctl("enable", self.launchAgentService)
+                // RunAtLoad starts the server as soon as the agent is loaded.
+                let r = self.launchctl("bootstrap", "gui/\(getuid())", self.launchAgentPlist)
+                if r.status != 0 {
+                    self.reportError("Could not start the server",
+                                     "launchctl bootstrap failed (exit \(r.status)).\n\n\(r.output)\n\nSee View Server Logs… for details.")
+                }
+            }
         }
     }
 
@@ -265,7 +330,13 @@ final class ServerManager {
 
     func restartServer() {
         workQueue.async {
-            self.launchctl("kickstart", "-k", self.launchAgentService)
+            // A stopped server has no loaded agent, so kickstart would fail
+            // silently — start it properly instead.
+            if self.isAgentLoaded {
+                self.launchctl("kickstart", "-k", self.launchAgentService)
+            } else {
+                self.startServer()
+            }
         }
     }
 
@@ -274,12 +345,37 @@ final class ServerManager {
         restartServer()
     }
 
-    private func launchctl(_ args: String...) {
+    /// Runs launchctl and returns its exit status and combined output.
+    @discardableResult
+    private func launchctl(_ args: String...) -> (status: Int32, output: String) {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/bin/launchctl")
         task.arguments = args
-        try? task.run()
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.standardError = pipe
+        do {
+            try task.run()
+        } catch {
+            return (-1, error.localizedDescription)
+        }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
         task.waitUntilExit()
+        let out = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        return (task.terminationStatus, out)
+    }
+
+    /// Shows an error alert on the main thread (callers may be on workQueue).
+    private func reportError(_ title: String, _ message: String) {
+        DispatchQueue.main.async {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = title
+            alert.informativeText = message
+            alert.addButton(withTitle: "OK")
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
+        }
     }
 }
 
