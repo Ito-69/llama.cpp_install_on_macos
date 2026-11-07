@@ -1,69 +1,7 @@
 import AppKit
 import Foundation
 
-// MARK: - Curated Shortlist
-
-struct CuratedModel {
-    let id: String
-    let displayName: String
-    let sizeGB: String
-    let description: String
-}
-
-let curatedModels: [CuratedModel] = [
-    CuratedModel(id: "bartowski/Qwen2.5-7B-Instruct-GGUF",
-                 displayName: "Qwen2.5 7B Instruct",
-                 sizeGB: "4.7",
-                 description: "Fast, good quality. Default."),
-    CuratedModel(id: "bartowski/Qwen2.5-14B-Instruct-GGUF",
-                 displayName: "Qwen2.5 14B Instruct",
-                 sizeGB: "8.4",
-                 description: "Balanced quality and speed."),
-    CuratedModel(id: "ggml-org/Qwen3.8-27B-GGUF",
-                 displayName: "Qwen3.8 27B Instruct",
-                 sizeGB: "19",
-                 description: "Latest Qwen 3.8 open weights. Needs 24 GB+ RAM."),
-    CuratedModel(id: "bartowski/Meta-Llama-3.1-8B-Instruct-GGUF",
-                 displayName: "Llama 3.1 8B Instruct",
-                 sizeGB: "5.0",
-                 description: "Meta's flagship small model."),
-    CuratedModel(id: "bartowski/Qwen2.5-32B-Instruct-GGUF",
-                 displayName: "Qwen2.5 32B Instruct",
-                 sizeGB: "19",
-                 description: "Strong 32B model. Needs 24 GB+ RAM."),
-    CuratedModel(id: "bartowski/DeepSeek-R1-Distill-Qwen-14B-GGUF",
-                 displayName: "DeepSeek R1 Distill 14B",
-                 sizeGB: "9.0",
-                 description: "Chain-of-thought reasoning, 14B quality."),
-    CuratedModel(id: "bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF",
-                 displayName: "DeepSeek R1 Distill 7B",
-                 sizeGB: "4.7",
-                 description: "Reasoning model, chain-of-thought."),
-    CuratedModel(id: "bartowski/microsoft_Phi-4-mini-instruct-GGUF",
-                 displayName: "Phi 4 Mini",
-                 sizeGB: "2.5",
-                 description: "Microsoft's latest compact powerhouse."),
-    CuratedModel(id: "bartowski/Mistral-Nemo-Instruct-2407-GGUF",
-                 displayName: "Mistral Nemo 12B",
-                 sizeGB: "7.0",
-                 description: "Multilingual, strong reasoning."),
-    CuratedModel(id: "bartowski/gemma-2-9b-it-GGUF",
-                 displayName: "Gemma 2 9B IT",
-                 sizeGB: "5.8",
-                 description: "Google's instruction-tuned model."),
-    CuratedModel(id: "bartowski/Llama-3.2-3B-Instruct-GGUF",
-                 displayName: "Llama 3.2 3B Instruct",
-                 sizeGB: "2.0",
-                 description: "Very small, fast, lower quality."),
-    CuratedModel(id: "openbmb/MiniCPM5-1B-GGUF",
-                 displayName: "MiniCPM5 1B",
-                 sizeGB: "0.7",
-                 description: "Tiny on-device model, fast and efficient."),
-    CuratedModel(id: "bartowski/Qwen2.5-Coder-7B-Instruct-GGUF",
-                 displayName: "Qwen2.5 Coder 7B",
-                 sizeGB: "4.7",
-                 description: "Code-focused model."),
-]
+// Curated shortlist: see ModelCatalog.swift (catalog/models.json).
 
 // MARK: - Models Window Controller
 
@@ -84,7 +22,7 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
     private var closeButton: NSButton!
 
     private var browseTable: NSTableView!
-    private var browseData: [CuratedModel] = curatedModels
+    private var browseData: [CuratedModel] = ModelCatalog.shared.models
     private var searchField: NSSearchField!
     private var searchTable: NSTableView!
     private var searchData: [HFModelSummary] = []
@@ -116,6 +54,11 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         refreshActive()
         refreshInstalled()
         refreshHFStatus()
+        ModelCatalog.shared.refreshIfStale { [weak self] changed in
+            guard let self = self, changed else { return }
+            self.browseData = ModelCatalog.shared.models
+            self.browseTable?.reloadData()
+        }
     }
 
     // MARK: Hugging Face account
@@ -348,16 +291,24 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         browseTable.rowSizeStyle = .small
         let col1 = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name"))
         col1.title = "Model"
-        col1.width = 260
+        col1.width = 190
         browseTable.addTableColumn(col1)
         let col2 = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("size"))
         col2.title = "Size"
         col2.width = 70
         browseTable.addTableColumn(col2)
+        let colRAM = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("ram"))
+        colRAM.title = "Mac RAM"
+        colRAM.width = 70
+        colRAM.headerToolTip = "Recommended memory. Orange = more than this Mac has."
+        browseTable.addTableColumn(colRAM)
         let col3 = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("desc"))
         col3.title = "Description"
         col3.width = 330
+        col3.resizingMask = .autoresizingMask
         browseTable.addTableColumn(col3)
+        // The description column takes whatever width is left as the window resizes.
+        browseTable.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
         browseTable.dataSource = self
         browseTable.delegate = self
         browseTable.tag = 100
@@ -950,7 +901,7 @@ extension ModelsWindowController: NSTableViewDataSource, NSTableViewDelegate {
         switch table.tag {
         case 100:
             let m = browseData[row]
-            descriptionLabel.stringValue = "Repo: \(m.id)  •  ~\(m.sizeGB) GB  •  \(m.description)"
+            descriptionLabel.stringValue = "Repo: \(m.id)  •  \(m.sizeText)  •  needs \(m.ramText) RAM  •  \(m.description)"
             descriptionLabel.isHidden = false
         case 101:
             let m = searchData[row]
@@ -983,7 +934,8 @@ extension ModelsWindowController: NSTableViewDataSource, NSTableViewDelegate {
             let m = browseData[row]
             switch id.rawValue {
             case "name": text = m.displayName
-            case "size": text = "~\(m.sizeGB) GB"
+            case "size": text = m.sizeText
+            case "ram":  text = m.ramText
             case "desc": text = m.description
             default: text = ""
             }
@@ -1008,8 +960,18 @@ extension ModelsWindowController: NSTableViewDataSource, NSTableViewDelegate {
         }
         let cell = NSTableCellView()
         let tf = NSTextField(labelWithString: text)
-        tf.frame = NSRect(x: 4, y: 2, width: 280, height: 16)
+        // Follow the column's width (it used to be a fixed 280 pt, which cut
+        // off longer descriptions) and show the full text on hover.
+        let colWidth = tableColumn?.width ?? 280
+        tf.frame = NSRect(x: 4, y: 2, width: max(20, colWidth - 8), height: 16)
+        tf.autoresizingMask = [.width]
+        tf.lineBreakMode = .byTruncatingTail
+        tf.toolTip = text.isEmpty ? nil : text
         tf.font = NSFont.systemFont(ofSize: 11)
+        if tableView.tag == 100 && id.rawValue == "ram" && row < browseData.count && browseData[row].exceedsThisMac {
+            tf.textColor = .systemOrange
+            tf.toolTip = "Needs \(browseData[row].ramText) — more memory than this Mac has."
+        }
         if tableView.tag == 102 && id.rawValue == "active" {
             tf.font = NSFont.boldSystemFont(ofSize: 12)
             tf.textColor = .systemGreen

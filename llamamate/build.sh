@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-VERSION="2.5.2"
+VERSION="2.5.3"
 APP_NAME="LlamaMate"
 BUILD_ARM64=".build/arm64/release"
 BUILD_X86_64=".build/x86_64/release"
@@ -45,6 +45,11 @@ cp Sources/llmctl/llama.icns "${APP_NAME}.app/Contents/Resources/llama.icns"
 # Bundle the canonical start script (single source of truth)
 cp Resources/llama-server-start.sh "${APP_NAME}.app/Contents/Resources/llama-server-start.sh"
 chmod +x "${APP_NAME}.app/Contents/Resources/llama-server-start.sh"
+
+# Bundle the curated model list (fallback when GitHub is unreachable)
+if [[ -f "../catalog/models.json" ]]; then
+  cp "../catalog/models.json" "${APP_NAME}.app/Contents/Resources/models.json"
+fi
 
 # Bundle install-llama.sh for offline/portable use
 if [[ -f "../install-llama.sh" ]]; then

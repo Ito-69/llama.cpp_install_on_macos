@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "updated": "2026-11-07",
+  "models": [
+    { "id": "unsloth/Qwen3.5-2B-GGUF",              "name": "Qwen3.5 2B",              "sizeGB": 1.3,  "minRAM": 8,  "description": "Tiny and very fast. Fine for simple chat on any Mac." },
+    { "id": "unsloth/Qwen3.5-4B-GGUF",              "name": "Qwen3.5 4B",              "sizeGB": 2.7,  "minRAM": 8,  "description": "Small and quick. The best pick for 8 GB Macs." },
+    { "id": "unsloth/Qwen3.5-9B-GGUF",              "name": "Qwen3.5 9B",              "sizeGB": 5.7,  "minRAM": 16, "description": "Best all-rounder for 16 GB Macs." },
+    { "id": "unsloth/gemma-4-e4b-it-GGUF",          "name": "Gemma 4 E4B",             "sizeGB": 5.0,  "minRAM": 16, "description": "Google's efficient small model; understands images too." },
+    { "id": "unsloth/gpt-oss-20b-GGUF",             "name": "gpt-oss 20B",             "sizeGB": 11.6, "minRAM": 24, "description": "OpenAI open-weight model. Works with Reasoning: Low / Medium / High." },
+    { "id": "unsloth/gemma-4-26B-A4B-it-GGUF",      "name": "Gemma 4 26B A4B",         "sizeGB": 16.9, "minRAM": 24, "description": "Mixture-of-experts: big-model quality, small-model speed." },
+    { "id": "unsloth/Qwen3.6-27B-MTP-GGUF",         "name": "Qwen3.6 27B (MTP)",       "sizeGB": 17.1, "minRAM": 24, "mtp": true, "description": "Ships MTP heads: LlamaMate turns on MTP for much faster replies." },
+    { "id": "ggml-org/Qwen3.8-27B-GGUF",            "name": "Qwen3.8 27B",             "sizeGB": 19.0, "minRAM": 32, "description": "Latest dense Qwen. Strong at code and reasoning." },
+    { "id": "unsloth/gemma-4-31B-it-GGUF",          "name": "Gemma 4 31B",             "sizeGB": 18.3, "minRAM": 32, "description": "Google's largest Gemma 4. Strong writing and vision." },
+    { "id": "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF", "name": "Qwen3 Coder 30B A3B", "sizeGB": 18.6, "minRAM": 32, "description": "Built for coding agents and IDE plugins." },
+    { "id": "unsloth/Qwen3.6-35B-A3B-GGUF",         "name": "Qwen3.6 35B A3B",         "sizeGB": 22.1, "minRAM": 32, "description": "Mixture-of-experts. Fast replies for its size." }
+  ]
+}

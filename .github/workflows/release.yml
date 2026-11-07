@@ -79,6 +79,7 @@ jobs:
           codesign --verify --deep --verbose=2 "$APP"
           test -x "$APP/Contents/Resources/llama-server-start.sh"
           test -f "$APP/Contents/Resources/install-llama.sh"
+          python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert d['version']==1 and d['models']" "$APP/Contents/Resources/models.json"
           /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist" | grep -qx "$VERSION"
           ls -la release-out/
           shasum -a 256 "release-out/LlamaMate-${VERSION}.dmg"

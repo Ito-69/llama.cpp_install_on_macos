@@ -96,9 +96,11 @@ The llama icon shows the server state: **full** = running, **half-faded** = load
 **Models…** opens a window with four tabs:
 
 - **Active** — the current model, its size and server state.
-- **Browse** — a curated **Shortlist** of popular GGUF models, or **Search** Hugging Face (sorted by downloads). Picking a repo opens a file picker with every quantization and its size; split models appear as one entry with their total size.
+- **Browse** — a curated **Shortlist**, or **Search** Hugging Face (sorted by downloads). The shortlist shows each model's download size and the **Mac RAM** it needs (orange when it's more than your Mac has); hover a row for the full description. Picking a repo opens a file picker with every quantization and its size; split models appear as one entry with their total size.
 - **Installed** — every model in `~/models/` (✓ = active). **Make Active** switches and restarts the server; **Delete…** removes the file (all parts of a split model).
 - **Install from URL** — paste `owner/repo`, `https://huggingface.co/owner/repo`, or a direct `…/resolve/main/<file>.gguf` link.
+
+The shortlist comes from [`catalog/models.json`](catalog/models.json) in this repository, so it can be updated without a new app version (the app checks for a newer list every few hours and keeps a built-in copy for offline use). Every entry is checked against Hugging Face by CI — the repo is public, the ~4-bit file exists and its size is right, and models listed with MTP really include the MTP heads — on each change and weekly.
 
 Downloads go to `~/models/` and can be cancelled and resumed — even after quitting the app. A file is only saved once its size matches Hugging Face's, and a download won't start without enough free disk space.
 
