@@ -1,6 +1,6 @@
-# llama.cpp macOS Installer
+# LlamaMate — llama.cpp for macOS
 
-A fully automated installer, updater, and manager for [llama.cpp](https://github.com/ggml-org/llama.cpp) on macOS (Apple Silicon & Intel), packaged as a single self-contained menu bar app.
+A menu bar app that installs, runs, updates and tunes [llama.cpp](https://github.com/ggml-org/llama.cpp) on macOS (Apple Silicon & Intel). Install it, click **Install**, and you have a local, OpenAI-compatible LLM server with a chat WebUI — no terminal needed.
 
 ## Screenshots
 
@@ -14,250 +14,244 @@ A fully automated installer, updater, and manager for [llama.cpp](https://github
 
 ### Why this exists
 
-llama.cpp releases ship as bare tarballs — no installer, no PATH setup, no
-Gatekeeper handling, no auto-start, no easy update path. Every new build meant
-the same manual ritual: download, extract, copy files, fix macOS security warnings,
-update the shell RC, restart the server. **LlamaMate** wraps the entire
-process into a single `.app` so you never think about it again.
+llama.cpp releases ship as bare tarballs — no installer, no PATH setup, no Gatekeeper handling, no auto-start, no easy update path. Every new build meant the same manual ritual: download, extract, copy files, fix macOS security warnings, update the shell RC, restart the server. **LlamaMate** wraps all of it into one `.app`.
 
 ## Features
 
-- **One-click install** — download the `.app`, double-click, press **Install**
-- **Self-contained** — `install-llama.sh` is bundled inside the `.app`; no separate script
-- **Automatic architecture detection** — universal binary (arm64 + x86_64)
-- **Menu bar control** — start / stop / restart, status icon (green = running)
-- **Model downloads** — built-in presets (Qwen2.5 7B, 14B, Llama 3.1 8B, Qwen3.8 27B) via Hugging Face
-- **Auto-start at login** — optional LaunchAgent for background server operation
-- **App auto-update** — checks GitHub releases; one-click download
-- **llama.cpp update** — check / apply from inside the app
-- **Gatekeeper handling** — ad-hoc codesign + quarantine removal baked into the build
-- **Shell configuration** — automatically sets up `PATH` and `DYLD_LIBRARY_PATH` in your shell RC file
-- **One-click uninstall** — removes everything: server, LaunchAgent, binaries, libraries, config, models, shell RC entries, and the app itself
+- **One-click install** — downloads the latest llama.cpp build for your Mac and a starter model, sets up auto-start and launches the server.
+- **Menu bar control** — start / stop / restart, with a status icon that shows *running*, *loading model* and *stopped*, and tells you when another app is using the port.
+- **Models** — curated shortlist, Hugging Face search, or paste a URL. Downloads **resume** after a cancel or quit, are **size-checked**, check free disk space first, and handle **split** (`-00001-of-0000N`) and sub-folder GGUF files.
+- **Server Settings in tabs** — Model, Performance, Network and Advanced; presets for Apple Silicon and Intel; an accurate **RAM estimate** read from the model's GGUF header.
+- **Faster by default** — full GPU offload, flash attention, quantized KV cache, prompt-cache reuse, and **MTP** speculative decoding switched on automatically for models that support it.
+- **Reasoning controls** — reasoning effort (Low / Medium / High) and a thinking-token limit.
+- **Private by default** — the server listens on this Mac only; LAN access and an **API key** are one click away. Your Hugging Face token is kept in the macOS **Keychain**.
+- **Your settings survive updates** — extra flags and custom settings live in a file LlamaMate never overwrites.
+- **Updates** — check for new LlamaMate and llama.cpp versions from the menu; Homebrew cask available.
+- **Clean uninstall** — from the menu or with `brew uninstall --zap`.
 
-## Quick Start
+## Install
 
-### Install
-
-**Via Homebrew (recommended if you have Homebrew):**
+**Homebrew (recommended):**
 ```bash
 brew tap Ito-69/llamamate
 brew install --cask llamamate
 ```
 
-**Via DMG (no Homebrew required):**
-1. Download `LlamaMate-2.x.x.dmg` from [GitHub Releases](https://github.com/Ito-69/llama.cpp_install_on_macos/releases)
-2. Open the `.dmg` and drag `LlamaMate.app` to `/Applications`
-3. Launch the app and click **Install** in the welcome dialog
+**DMG:**
+1. Download `LlamaMate-<version>.dmg` from [GitHub Releases](https://github.com/Ito-69/llama.cpp_install_on_macos/releases).
+2. Open it and drag `LlamaMate.app` to **Applications**.
+
+Then open **LlamaMate** and click **Install** in the welcome dialog. It downloads llama.cpp and a model, sets up the background service and starts the server. You can paste a free [Hugging Face token](https://huggingface.co/settings/tokens) when asked — downloads without one are rate-limited.
 
 > [!NOTE]
-> ### First Launch & macOS Gatekeeper
-> Because LlamaMate is an open-source project without an Apple Developer certificate, macOS Gatekeeper may block it on first run:
+> ### First launch & Gatekeeper
+> LlamaMate is open source and ad-hoc signed (no paid Apple Developer certificate), so macOS may block the first launch:
 >
-> - **Standard bypass (macOS 13 / 14):**  
->   **Right-click (or Control-click) → Open**, then click **Open** in the confirmation dialog.
->
-> - **macOS 15 Sequoia:**  
->   If right-clicking does not work, open **System Settings → Privacy & Security**, scroll down to the *Security* section, and click **Open Anyway**.
->
-> - **macOS says the app is "damaged"?**  
->   It isn't — that is a quarantine flag macOS attaches to files downloaded via a browser. Open **Terminal**, paste the command below, and press Enter:
+> - Open **System Settings → Privacy & Security**, scroll to **Security**, and click **Open Anyway**.
+>   (On macOS 13–14 you can also right-click the app → **Open**. From macOS 15 that shortcut no longer works.)
+> - **"LlamaMate is damaged"?** It isn't — that's the quarantine flag browsers add to downloads. Run this once in Terminal, then open the app normally:
 >   ```bash
 >   xattr -dr com.apple.quarantine /Applications/LlamaMate.app
 >   ```
->   Then open the app normally.
 
-The app handles everything: downloads llama.cpp, downloads a model, sets up the LaunchAgent, and starts the server. You'll see a green llama icon in your menu bar when it's running.
-
-### Use
+## Use
 
 | URL | What it is |
 |-----|------------|
-| `http://127.0.0.1:8080` | WebUI — chat with the AI agent |
-| `http://127.0.0.1:8080/health` | Health check endpoint |
-| `http://127.0.0.1:8080/v1` | OpenAI-compatible API |
+| `http://127.0.0.1:8080` | WebUI — chat in the browser (PDF/image attachments, multiple conversations, JSON output) |
+| `http://127.0.0.1:8080/v1` | OpenAI-compatible API (for Open WebUI, VS Code extensions, coding agents, scripts) |
+| `http://127.0.0.1:8080/health` | Health check (always open, even with an API key) |
 
-Quick test via terminal:
+Quick test:
 
 ```bash
 curl http://127.0.0.1:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{
-    "model": "llama",
-    "messages": [{"role": "user", "content": "Hello!"}]
-  }'
+  -d '{"model": "llama", "messages": [{"role": "user", "content": "Hello!"}]}'
 ```
 
-The WebUI supports chat, PDF/image attachments, multiple conversations, JSON schema output, and more — all fully local.
+With an API key set (see [Network & security](#network--security)), add `-H "Authorization: Bearer <your-key>"`.
 
-## Menu Bar App
+## Menu bar
 
-The app lives in your menu bar with a green llama icon (faded = stopped, full = running). Click it to access:
+The llama icon shows the server state: **full** = running, **half-faded** = loading the model, **faded** = stopped. A small red dot means an update is available.
 
-| Menu item | Description |
-|-----------|-------------|
-| `Open WebUI` | Open `http://127.0.0.1:8080` in your browser (⌘O) |
-| `Start Server` / `Stop Server` / `Restart Server` | Control the llama-server LaunchAgent |
-| `Models…` | Open the Models window (browse, download, activate, delete) |
-| `Server Settings…` | Open the Server Settings window (profiles, GPU layers, context, flash attention, KV cache, threads, batch size, port) |
-| `View Server Logs…` | Open the Log Viewer (auto-refreshing tail of `~/Library/Logs/llama-server.log`) |
-| `Check for App Update...` | Check for a newer LlamaMate release on GitHub |
-| `Check for llama.cpp Update...` | Check for a newer llama.cpp build |
-| `Apply llama.cpp Update...` | Download and install the latest llama.cpp build |
-| `Launch at Login` | Toggle auto-start of the menu bar app itself |
-| `Uninstall...` | Remove everything (with option to keep models) |
-| `About LlamaMate` | Show version and GitHub link |
-| `Quit` | Exit the menu bar app (⌘Q) |
+| Menu item | What it does |
+|-----------|--------------|
+| *Status line* | `running`, `loading model…`, `stopped`, or `Port N is used by another app` |
+| *Active model* | The model the server uses |
+| **Open WebUI** (⌘O) | Opens the chat page in your browser |
+| **Start / Stop / Restart Server** (⌘S / ⌘R) | Controls the background service. Start recreates the service if an update removed it, and shows an error instead of failing silently. |
+| **Models…** (⌘M) | Browse, download, activate and delete models |
+| **Server Settings…** | All server options (see below) |
+| **View Server Logs…** | Live view of the server log (last 256 KB) |
+| **Check for App Update…** | Looks for a newer LlamaMate release (shows the `brew` command for Homebrew installs) |
+| **Check for llama.cpp Update…** | Looks for a newer llama.cpp build and offers **Install Update** |
+| **Launch at Login** | Starts the menu bar app when you log in (the server itself always auto-starts) |
+| **Uninstall…** | See [Uninstall](#uninstall) |
+| **About LlamaMate** / **Quit** (⌘Q) | |
 
-The status icon polls every 5 seconds.
+## Models
 
-## Managing Models
+**Models…** opens a window with four tabs:
 
-Click **Models…** in the menu bar to open a dedicated window with four tabs:
+- **Active** — the current model, its size and server state.
+- **Browse** — a curated **Shortlist** of popular GGUF models, or **Search** Hugging Face (sorted by downloads). Picking a repo opens a file picker with every quantization and its size; split models appear as one entry with their total size.
+- **Installed** — every model in `~/models/` (✓ = active). **Make Active** switches and restarts the server; **Delete…** removes the file (all parts of a split model).
+- **Install from URL** — paste `owner/repo`, `https://huggingface.co/owner/repo`, or a direct `…/resolve/main/<file>.gguf` link.
 
-### Active
+Downloads go to `~/models/` and can be cancelled and resumed — even after quitting the app. A file is only saved once its size matches Hugging Face's, and a download won't start without enough free disk space.
 
-Shows the current active model — its label, file size, and whether the server is running. Use this as a starting point to change models.
-
-### Browse
-
-Two modes via a dropdown:
-
-- **Shortlist** — 10 curated popular GGUF models (Qwen2.5, Llama 3.1, Mistral Nemo, Phi 3.5, Gemma 2, DeepSeek R1, etc.) with descriptions and approximate sizes. Double-click to pick.
-- **Search** — search Hugging Face for any GGUF model by name. Results sorted by downloads.
-
-After picking a repo, a file picker shows all available `.gguf` quantizations with sizes from Hugging Face. Pick one and click **Download** — the progress bar and live log appear in the same window. Once finished, you're asked "Use this model now?" — Yes updates the server config and restarts the LaunchAgent; No just keeps the file in `~/models/` for later.
-
-### Installed
-
-Lists every `.gguf` file in `~/models/`. The currently active model is marked with ✓. Right-click or use the buttons:
-
-- **Make Active** — switches to that model and restarts the server
-- **Delete…** — removes the file from disk (with confirmation)
-
-### Install from URL
-
-Paste any of these and click **Fetch**:
-
-- `https://huggingface.co/<owner>/<repo>` — opens the file picker
-- `https://huggingface.co/<owner>/<repo>/resolve/main/<file>.gguf` — skips the picker and goes straight to download
-- `<owner>/<repo>` — bare repo id
-
-### Tips
-
-- Without a Hugging Face token, downloads are rate-limited. The app prompts for one on first install. You can add a token later from the welcome dialog.
-- Downloads are handled natively (URLSession in the app, curl in the script) with resume and Hugging Face token support.
-- All downloaded models land in `~/models/`. Delete them anytime from the Installed tab.
+> Your Hugging Face token is stored in the macOS Keychain (item `com.llamamate.app` / `hf_token`). It's requested during the first install; there is no in-app setting to change it yet — you can edit or delete that item in **Keychain Access**.
 
 ## Server Settings
 
-Click **Server Settings…** in the menu bar to tune `llama-server` parameters without touching the terminal. The window auto-detects Apple Silicon vs Intel and adjusts presets accordingly.
+**Server Settings…** has a **Profile** preset at the top, four tabs, and a live RAM estimate plus **Apply & Restart** at the bottom. Apply only restarts the server when something actually changed, so the prompt cache is kept.
 
 ### Profiles
 
-Three presets that set GPU layers, flash attention, and KV cache quantization together:
+| Profile | Apple Silicon | Intel |
+|---------|---------------|-------|
+| **Fast** | all layers on GPU (`-ngl 99`), flash attention, `q8_0` KV cache | `-ngl 1`, `f16` KV cache |
+| **Balanced** *(default)* | all layers on GPU, flash attention, `q8_0` KV cache | CPU only, `f16` KV cache |
+| **Accurate** | all layers on GPU, no flash attention, `f16` KV cache | CPU only, `f16` KV cache |
 
-| Profile | Apple Silicon (M1–M4) | Intel Mac |
-|---------|-----------------------|-----------|
-| **Fast** | `-ngl 99` `-fa 1` `-ctk q8_0` | `-ngl 1` |
-| **Balanced** *(default)* | `-ngl 40` `-fa 1` `-ctk q8_0` | CPU only |
-| **Accurate** | `-ngl 99` no KV cache opts | CPU only |
+On Apple Silicon the profiles also set Threads to the number of performance cores.
 
-### Individual controls
+### Model tab
 
-| Control | What it does |
-|---------|-------------|
-| **GPU layers** | Number of layers offloaded to GPU (0–99). On Apple Silicon, Metal acceleration makes this the single biggest speedup — always set to 99. |
-| **Context** | Context size in tokens (2048–262144+, with Custom… entry support). Larger = more memory, better for long conversations. |
-| **Flash attention** | Faster inference with most models. Always enabled on Apple Silicon Fast/Balanced profiles. |
-| **KV cache type** | Quantization for key/value cache: `f16` (full precision), `q8_0` (8-bit, saves RAM), `q4_0` (4-bit, maximum RAM saving). |
-| **Threads** | CPU threads for prompt processing. `0` = auto. On Apple Silicon, optimal is the number of P-cores (not logical cores). |
-| **Batch size** | Tokens processed per batch. `512` is a good default. |
-| **Port** | HTTP server port (default `8080`). |
+| Setting | What it does |
+|---------|--------------|
+| **GPU layers** | Layers offloaded to the GPU (0–99). On Apple Silicon keep **99**: Metal is the biggest speed-up. |
+| **Context** | Context size in tokens (2,048–262,144, or **Custom…**). More context needs more memory. The window warns when you go above the length the model was trained for. |
+| **Flash attn** | Faster attention. Required for a quantized KV cache — turning it off switches the cache to `f16` automatically. |
+| **KV cache** | `f16`, `q8_0` (half the memory) or `q4_0` (a quarter). |
 
-### Speed: MTP and parallel requests
+### Performance tab
 
-- **MTP** — for models that ship multi-token-prediction heads (LlamaMate detects them in the GGUF header), speculative decoding is enabled automatically (`--spec-type draft-mtp --spec-draft-n-max 4`). Often ~2× faster generation with identical output. Set **MTP: Off** to disable.
-- **Parallel** — how many requests llama-server handles at once (`-np`). **Auto** keeps llama.cpp's default; **1** is best for a single user with one app. With 2 or more, LlamaMate also passes `--kv-unified` so every slot can use the full context.
+| Setting | What it does |
+|---------|--------------|
+| **Threads** | CPU threads for generation. **0 = auto**: llama.cpp picks the performance cores. |
+| **Batch** | Tokens per batch (2048 recommended on Apple Silicon). |
+| **Batch threads** | Threads for prompt processing (`-tb`); empty = auto. |
+| **Faster regenerate / chat** | Reuses the prompt cache between requests (`--cache-reuse 256`). On by default. |
+| **Keep model in RAM** | Locks the model in memory (mlock). Only if you have free RAM for the whole model. |
+| **Parallel** | Requests handled at once: **Auto** (llama.cpp default), 1, 2 or 4. **1** suits one user with one app; choose more if several apps or people use the server (Open WebUI, for example, sends title requests in parallel). With 2+, every request still gets the full context. |
+| **MTP** | Multi-token prediction. LlamaMate reads the model's GGUF header; when the model ships MTP heads it turns on speculative decoding (`--spec-type draft-mtp`, 4 draft tokens, adjustable 2–6). Often about **2× faster** generation with identical output. The row shows **✓ model has MTP** or **no MTP heads**. |
 
-### RAM safety
+### Network tab
 
-When you apply settings, the window shows an estimate of model + context RAM vs your system's available memory. If the estimate exceeds available RAM, a warning is shown. The start script also checks before launching `llama-server` and logs a warning if the model is likely too large.
+| Setting | What it does |
+|---------|--------------|
+| **Port** | HTTP port (default 8080). |
+| **Allow access from local network** | Off: only this Mac can connect (`127.0.0.1`). On: other devices on your network can (`0.0.0.0`). |
+| **API key** | **Generate** creates a random key; clients then send `Authorization: Bearer <key>`. Strongly recommended with LAN access — the tab shows **Network ⚠︎** while LAN is on without a key. |
 
-### Custom llama-server flags
+### Advanced tab
 
-The easiest way is **Server Settings → Extra flags**: anything you type there (for example `-np 1`) is appended to the llama-server command line and kept across updates.
+| Setting | What it does |
+|---------|--------------|
+| **Reasoning** | Reasoning effort: Default / Low / Medium / High (`--reasoning-effort`). Only models trained with effort levels use it (for example gpt-oss). |
+| **Thinking limit** | Max tokens a thinking model (Qwen3, DeepSeek-R1, …) may spend reasoning before it answers (`--reasoning-budget`): Unlimited, Off, or 512–8192. |
+| **Extra flags** | Any additional llama-server flags, appended last (for example `-np 1`). Kept across updates. An unknown flag stops the server — check **View Server Logs…**. |
 
-Behind the scenes LlamaMate manages `~/.config/llama/server.conf` and `~/.local/bin/llama-server-start.sh` and may rewrite both on updates. Your own settings live in **`~/.config/llama/server.local.conf`** — LlamaMate creates it once with comments and never rewrites it (the Extra flags field only updates its `EXTRA_ARGS` line). You can also edit it directly:
+New options are only passed to llama-server when the installed llama.cpp build supports them, so an older build keeps working; update llama.cpp from the menu to get them.
+
+### RAM estimate
+
+The bottom of the window shows *model + KV cache ≈ needed* versus the memory macOS lets the GPU use (Metal's working-set limit, about 70–75% of RAM). The KV cache is calculated from the model's GGUF header — layers, KV heads, head size, context and cache type — and for hybrid models (Qwen3.5 / Qwen3-Next, Mamba-style layers) only layers that actually keep a cache are counted. Sliding-window models are marked *(approx.)*.
+
+### Your own settings
+
+LlamaMate manages `~/.config/llama/server.conf` and `~/.local/bin/llama-server-start.sh` and may rewrite them on updates. Your own settings belong in **`~/.config/llama/server.local.conf`** — created once with comments, never overwritten. The **Extra flags** field edits its `EXTRA_ARGS` line; you can also edit the file directly:
 
 ```bash
-# Extra llama-server flags, appended last (space-separated; no values with spaces)
+# Extra llama-server flags, appended last (space-separated; values with spaces aren't supported)
 EXTRA_ARGS="-np 1 --spec-type draft-mtp --spec-draft-n-max 4"
 
 # Or llama.cpp's environment variables, for flags LlamaMate doesn't pass itself
 export LLAMA_ARG_N_PARALLEL=1
 ```
 
-Restart the server after editing. An unknown flag stops the server from starting — check **View Server Logs…**.
+Restart the server after editing. Also kept across updates:
+- any `KEY=…` line you added to `server.conf`;
+- a hand-edited start script — before replacing it, LlamaMate saves it as `llama-server-start.sh.user-<date>` and tells you where.
 
-Also kept across updates:
-- Any `KEY=…` line in `server.conf` that LlamaMate doesn't manage.
-- A hand-edited start script: before replacing it, LlamaMate saves it as `llama-server-start.sh.user-<date>` and tells you.
+## Network & security
 
-**Apply & Restart** only restarts the server when a setting actually changed, so llama-server keeps its prompt cache.
+- The server listens on **`127.0.0.1`** by default (existing installs that used `0.0.0.0` keep their setting).
+- Turn on **Allow access from local network** to use it from other devices, and set an **API key**. The key is passed with `--api-key-file`, so it doesn't show up in the process list.
+- `/health` stays open without a key so the app can show the server state.
+- `server.conf` and the key file are readable only by your user (`0600`); every value is quoted and validated before the start script uses it.
+- Your Hugging Face token is in the Keychain, not in a plain-text preferences file.
 
-## Build from Source
+## Updating
 
+**Homebrew:**
 ```bash
-# Build the universal .app
-cd llamamate
-./build.sh
-
-# Copy to /Applications
-cp -r LlamaMate.app /Applications/
-
-# Open
-open /Applications/LlamaMate.app
+brew update && brew upgrade --cask llamamate
 ```
+Homebrew removes the background service while upgrading. LlamaMate recreates it on the next launch — if the menu says *stopped*, click **Start Server**.
 
-Build outputs:
-- `LlamaMate.app` — universal binary (arm64 + x86_64), ad-hoc codesigned
-- macOS 13+ required
+**DMG:** **Check for App Update…** opens the download page.
 
-## Files & Directories
+**llama.cpp itself:** **Check for llama.cpp Update…** → **Install Update**. Your model and settings stay as they are.
+
+## Uninstall
+
+**From the app — Uninstall…**
+- **Remove Everything** — stops the server and removes the background service, llama.cpp binaries and libraries, configuration, app data, the shell RC lines, and the downloaded `.gguf` models (other files in `~/models` are left alone).
+- **Keep Models** — the same, but keeps `~/models`.
+
+If LlamaMate was installed with Homebrew, the app doesn't delete itself; it shows the `brew uninstall` command to finish.
+
+**With Homebrew:**
+```bash
+brew uninstall --cask llamamate          # quits the app, stops the server, removes the app
+brew uninstall --zap --cask llamamate    # also removes settings, logs and preferences
+```
+Homebrew never deletes your models (`~/models`) or the llama.cpp binaries in `~/.local` — use the in-app **Uninstall…** for those.
+
+## Files & directories
 
 | Path | Purpose |
 |------|---------|
-| `~/.local/bin/` | llama.cpp binaries (`llama-server`, `llama-cli`, …) |
-| `~/.local/lib/` | Shared libraries (`libllama*.dylib`, `libggml*.dylib`) |
-| `~/models/` | GGUF model files |
-| `~/.config/llama/server.conf` | Server configuration (managed by LlamaMate) |
-| `~/.config/llama/server.local.conf` | Your own settings / `EXTRA_ARGS` — never overwritten |
-| `~/Library/Application Support/LlamaMate/` | App support (bundled script) |
-| `~/Library/LaunchAgents/com.llama.cpp.server.plist` | LaunchAgent (auto-start server) |
-| `~/Library/Logs/llama-server.log` | Server stdout (background mode) |
-| `~/Library/Logs/llama-server.err.log` | Server stderr (background mode) |
+| `~/.local/bin/` | llama.cpp binaries (`llama-server`, …) and `llama-server-start.sh` |
+| `~/.local/lib/` | llama.cpp libraries (`libllama*.dylib`, `libggml*.dylib`) |
+| `~/models/` | GGUF models |
+| `~/.config/llama/server.conf` | Server settings (managed by LlamaMate) |
+| `~/.config/llama/server.local.conf` | Your own settings / extra flags — never overwritten |
+| `~/.config/llama/api_key` | API key file (only while a key is set) |
+| `~/Library/Application Support/LlamaMate/` | Bundled installer and start script |
+| `~/Library/LaunchAgents/com.llama.cpp.server.plist` | Background service (starts the server at login) |
+| `~/Library/Logs/llama-server.log`, `llama-server.err.log` | Server logs (rotated above 20 MB) |
 
-## Uninstallation
+## Build from source
 
-Click **Uninstall...** in the menu bar app. Choose:
+```bash
+cd llamamate
+./build.sh                      # universal .app (arm64 + x86_64), ad-hoc signed
+open LlamaMate.app
+```
 
-- **Remove Everything** — server, LaunchAgent, binaries, libraries, config, app support, shell RC entries, and downloaded models
-- **Keep Models** — same as above but keeps `~/models/*.gguf`
-- **Cancel** — do nothing
+Requires Xcode command-line tools and macOS 13+.
 
-The app removes itself from `/Applications` after quitting.
+For maintainers:
+- Every pull request is built on a macOS runner (`.github/workflows/build.yml`), including the GGUF parser tests in `llamamate/Tests/gguf`.
+- Releases: bump `VERSION` in `llamamate/build.sh`, add `release-notes/v<version>.md`, merge, then **Actions → Build Release → Run workflow** with **publish** checked. It builds and verifies the DMG, publishes the GitHub release and updates the Homebrew tap. See `AGENTS.md`.
 
 ## Requirements
 
-- macOS 13+ (Ventura or newer)
-- Internet connection (for initial download + model fetch)
+- macOS 13 Ventura or newer
+- Apple Silicon recommended (Metal GPU acceleration); Intel Macs run on the CPU
+- An internet connection for the first install and model downloads
 
-No Python or external packages required — works out of the box on a clean Mac.
+No Python or other dependencies — works on a clean Mac.
 
 ## License
 
-MIT — feel free to use, modify, and share.
+MIT — feel free to use, modify and share.
 
 ---
 
-*Inspired by the [llama.cpp](https://github.com/ggml-org/llama.cpp) project by ggerganov.*
+*Built on [llama.cpp](https://github.com/ggml-org/llama.cpp) by Georgi Gerganov and contributors.*
