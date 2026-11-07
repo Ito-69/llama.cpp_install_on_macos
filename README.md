@@ -185,7 +185,9 @@ When you apply settings, the window shows an estimate of model + context RAM vs 
 
 ### Custom llama-server flags
 
-LlamaMate manages `~/.config/llama/server.conf` and `~/.local/bin/llama-server-start.sh` and may rewrite both on updates. To keep your own settings, use **`~/.config/llama/server.local.conf`** — LlamaMate creates it once with comments and never writes to it again:
+The easiest way is **Server Settings → Extra flags**: anything you type there (for example `-np 1`) is appended to the llama-server command line and kept across updates.
+
+Behind the scenes LlamaMate manages `~/.config/llama/server.conf` and `~/.local/bin/llama-server-start.sh` and may rewrite both on updates. Your own settings live in **`~/.config/llama/server.local.conf`** — LlamaMate creates it once with comments and never rewrites it (the Extra flags field only updates its `EXTRA_ARGS` line). You can also edit it directly:
 
 ```bash
 # Extra llama-server flags, appended last (space-separated; no values with spaces)

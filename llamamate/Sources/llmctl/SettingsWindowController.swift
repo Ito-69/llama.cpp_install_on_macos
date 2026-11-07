@@ -30,6 +30,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var mtpPopup: NSPopUpButton!
     private var mtpDraftPopup: NSPopUpButton!
     private var mtpHint: NSTextField!
+    private var extraArgsField: NSTextField!
     private var ramLabel: NSTextField!
     private var diagnosticsLabel: NSTextField!
     private var usageLabel: NSTextField!
@@ -106,7 +107,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     private func buildWindow() {
         let w = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 874),
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 930),
             styleMask: [.titled, .closable],
             backing: .buffered, defer: false
         )
@@ -119,7 +120,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let content = NSView(frame: w.contentView!.bounds)
         content.autoresizingMask = [.width, .height]
 
-        var y: CGFloat = 834
+        var y: CGFloat = 890
 
         // ── Header ──
         let header = NSTextField(labelWithString: "Server Configuration")
@@ -326,7 +327,22 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         mtpHint.font = NSFont.systemFont(ofSize: 11)
         mtpHint.textColor = .secondaryLabelColor
         content.addSubview(mtpHint)
-        y -= 36
+        y -= 34
+
+        // ── Extra flags row (stored in server.local.conf) ──
+        addLabel("Extra flags:", x: 16, y: y - 2, width: 110, to: content)
+        extraArgsField = NSTextField(frame: NSRect(x: 130, y: y, width: 374, height: 22))
+        extraArgsField.placeholderString = "e.g. -np 1 --spec-type draft-mtp"
+        extraArgsField.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        extraArgsField.toolTip = "Additional llama-server flags, appended last (EXTRA_ARGS). Space-separated; values with spaces are not supported. Saved in ~/.config/llama/server.local.conf, which LlamaMate never overwrites, so they survive updates. An unknown flag stops the server — check View Server Logs…"
+        content.addSubview(extraArgsField)
+        y -= 20
+        let extraHint = NSTextField(labelWithString: "Kept across updates (server.local.conf). Unknown flags stop the server.")
+        extraHint.frame = NSRect(x: 130, y: y, width: 374, height: 16)
+        extraHint.font = NSFont.systemFont(ofSize: 10)
+        extraHint.textColor = .secondaryLabelColor
+        content.addSubview(extraHint)
+        y -= 38
 
         // ── Separator ──
         let sep2 = separator(frame: NSRect(x: 16, y: y, width: 488, height: 1))
@@ -625,6 +641,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             mtpDraftPopup.selectItem(withTitle: "4")
         }
         updateMtpControls()
+
+        extraArgsField.stringValue = ConfigManager.shared.readExtraArgs()
     }
 
     private func currentParallel() -> String {
@@ -830,12 +848,21 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
               validateNumericField(currentContext(), name: "Context")
         else { return }
 
+        // Extra flags must start with a flag ("-x" / "--xyz"); values follow.
+        let extraArgs = extraArgsField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !extraArgs.isEmpty && !extraArgs.hasPrefix("-") {
+            showInvalid("Extra flags", "must start with a llama-server flag, for example \"-np 1\".")
+            return
+        }
+
         do {
             // Belt-and-suspenders guard: a quantized KV cache requires Flash
             // Attention on Metal. If FA is off, persist f16 regardless of the
             // (disabled) popup selection.
             let faOn = currentFa() == "1"
             let cacheType = faOn ? currentCtk() : "f16"
+            // Written first so the restart below picks the new flags up.
+            let extraChanged = try ConfigManager.shared.writeExtraArgs(extraArgs)
             try ModelManager.shared.saveSettings(
                 ngl: currentNgl(),
                 fa: currentFa(),
@@ -855,7 +882,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                 mtp: currentMtp(),
                 mtpDraft: currentMtpDraft(),
                 parallel: currentParallel(),
-                profile: currentProfile()
+                profile: currentProfile(),
+                forceRestart: extraChanged
             )
             window.close()
         } catch {

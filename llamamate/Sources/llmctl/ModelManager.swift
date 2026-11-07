@@ -117,7 +117,7 @@ final class ModelManager {
 
     // MARK: Save Settings
 
-    func saveSettings(ngl: String, fa: String, ctk: String, ctv: String, threads: String, batchSize: String, context: String, port: String, host: String, apiKey: String, cacheReuse: String, mlock: String, threadsBatch: String, reasoningEffort: String, reasoningBudget: String, mtp: String, mtpDraft: String, parallel: String, profile: String) throws {
+    func saveSettings(ngl: String, fa: String, ctk: String, ctv: String, threads: String, batchSize: String, context: String, port: String, host: String, apiKey: String, cacheReuse: String, mlock: String, threadsBatch: String, reasoningEffort: String, reasoningBudget: String, mtp: String, mtpDraft: String, parallel: String, profile: String, forceRestart: Bool = false) throws {
         var config = ConfigManager.shared.read()
         config.ngl = ngl
         config.fa = fa
@@ -139,7 +139,7 @@ final class ModelManager {
         config.mtpDraft = mtpDraft
         config.parallel = parallel
         config.profile = profile
-        try ConfigManager.shared.apply(config)
+        try ConfigManager.shared.apply(config, forceRestart: forceRestart)
     }
 
     // MARK: Download
