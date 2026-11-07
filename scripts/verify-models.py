@@ -79,6 +79,9 @@ def main():
     with open(CATALOG) as f:
         catalog = json.load(f)
     assert catalog.get("version") == 1, "unsupported catalog version"
+    # The app prefers whichever copy (cached download or built-in) has the
+    # higher revision, so it must be an integer and go up with every change.
+    assert isinstance(catalog.get("revision"), int), "catalog needs an integer 'revision'"
     # "models" is the main shortlist; "community" holds opt-in fine-tunes
     # (separate key, so app versions without the opt-in never show them).
     models = [dict(m, _list="models") for m in catalog["models"]]

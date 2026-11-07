@@ -396,6 +396,14 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         defaults.set(sender.state == .on, forKey: Self.showCommunityKey)
         browseData = Self.shortlist()
         browseTable.reloadData()
+        if sender.state == .on {
+            // Make sure the latest list (with its community entries) is loaded.
+            ModelCatalog.shared.refreshIfStale(force: true) { [weak self] changed in
+                guard let self = self, changed else { return }
+                self.browseData = Self.shortlist()
+                self.browseTable.reloadData()
+            }
+        }
     }
 
     @objc private func browseModeChanged(_ popup: NSPopUpButton) {
@@ -1013,7 +1021,10 @@ extension ModelsWindowController: NSTableViewDataSource, NSTableViewDelegate {
         tf.frame = NSRect(x: 4, y: 2, width: max(20, colWidth - 8), height: 16)
         tf.autoresizingMask = [.width]
         tf.lineBreakMode = .byTruncatingTail
-        tf.toolTip = text.isEmpty ? nil : text
+        // Tooltips only where text can be cut off (short columns don't need one,
+        // and a tooltip from a neighbouring cell could show up in the wrong place).
+        let longColumns: Set<String> = ["name", "desc", "file", "id"]
+        tf.toolTip = (longColumns.contains(id.rawValue) && !text.isEmpty) ? text : nil
         tf.font = NSFont.systemFont(ofSize: 11)
         if tableView.tag == 100 && id.rawValue == "ram" && row < browseData.count && browseData[row].exceedsThisMac {
             tf.textColor = .systemOrange
