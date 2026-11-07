@@ -178,6 +178,26 @@ Three presets that set GPU layers, flash attention, and KV cache quantization to
 
 When you apply settings, the window shows an estimate of model + context RAM vs your system's available memory. If the estimate exceeds available RAM, a warning is shown. The start script also checks before launching `llama-server` and logs a warning if the model is likely too large.
 
+### Custom llama-server flags
+
+LlamaMate manages `~/.config/llama/server.conf` and `~/.local/bin/llama-server-start.sh` and may rewrite both on updates. To keep your own settings, use **`~/.config/llama/server.local.conf`** — LlamaMate creates it once with comments and never writes to it again:
+
+```bash
+# Extra llama-server flags, appended last (space-separated; no values with spaces)
+EXTRA_ARGS="-np 1 --spec-type draft-mtp --spec-draft-n-max 4"
+
+# Or llama.cpp's environment variables, for flags LlamaMate doesn't pass itself
+export LLAMA_ARG_N_PARALLEL=1
+```
+
+Restart the server after editing. An unknown flag stops the server from starting — check **View Server Logs…**.
+
+Also kept across updates:
+- Any `KEY=…` line in `server.conf` that LlamaMate doesn't manage.
+- A hand-edited start script: before replacing it, LlamaMate saves it as `llama-server-start.sh.user-<date>` and tells you.
+
+**Apply & Restart** only restarts the server when a setting actually changed, so llama-server keeps its prompt cache.
+
 ## Build from Source
 
 ```bash
@@ -203,7 +223,8 @@ Build outputs:
 | `~/.local/bin/` | llama.cpp binaries (`llama-server`, `llama-cli`, …) |
 | `~/.local/lib/` | Shared libraries (`libllama*.dylib`, `libggml*.dylib`) |
 | `~/models/` | GGUF model files |
-| `~/.config/llama/server.conf` | Server configuration |
+| `~/.config/llama/server.conf` | Server configuration (managed by LlamaMate) |
+| `~/.config/llama/server.local.conf` | Your own settings / `EXTRA_ARGS` — never overwritten |
 | `~/Library/Application Support/LlamaMate/` | App support (bundled script) |
 | `~/Library/LaunchAgents/com.llama.cpp.server.plist` | LaunchAgent (auto-start server) |
 | `~/Library/Logs/llama-server.log` | Server stdout (background mode) |
