@@ -31,6 +31,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var mtpDraftPopup: NSPopUpButton!
     private var mtpHint: NSTextField!
     private var extraArgsField: NSTextField!
+    private var tabView: NSTabView!
+    private var networkTab: NSTabViewItem?
+    private static let selectedTabKey = "settingsSelectedTab"
     private var ramLabel: NSTextField!
     private var diagnosticsLabel: NSTextField!
     private var usageLabel: NSTextField!
@@ -106,8 +109,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     // MARK: Window
 
     private func buildWindow() {
+        let width: CGFloat = 540
+        let height: CGFloat = 600
         let w = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 930),
+            contentRect: NSRect(x: 0, y: 0, width: width, height: height),
             styleMask: [.titled, .closable],
             backing: .buffered, defer: false
         )
@@ -120,16 +125,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let content = NSView(frame: w.contentView!.bounds)
         content.autoresizingMask = [.width, .height]
 
-        var y: CGFloat = 890
-
-        // ── Header ──
+        // ── Header + profile (the preset spans several tabs) ──
+        var y: CGFloat = height - 36
         let header = NSTextField(labelWithString: "Server Configuration")
         header.font = NSFont.boldSystemFont(ofSize: 13)
-        header.frame = NSRect(x: 16, y: y, width: 488, height: 18)
+        header.frame = NSRect(x: 16, y: y, width: width - 32, height: 18)
         content.addSubview(header)
-        y -= 30
+        y -= 34
 
-        // ── Profile row ──
         addLabel("Profile:", x: 16, y: y - 2, width: 110, to: content)
         profilePopup = NSPopUpButton(frame: NSRect(x: 130, y: y, width: 200, height: 24))
         profilePopup.addItems(withTitles: ["Fast", "Balanced", "Accurate"])
@@ -137,16 +140,23 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         profilePopup.target = self
         profilePopup.action = #selector(profileChanged(_:))
         content.addSubview(profilePopup)
-        y -= 34
+        addHint("GPU layers, flash attn, KV cache", x: 340, y: y, to: content)
 
-        // ── Separator ──
-        let sep1 = separator(frame: NSRect(x: 16, y: y, width: 488, height: 1))
-        content.addSubview(sep1)
-        y -= 16
+        // ── Tabs ──
+        let bottomPanelTop: CGFloat = 168
+        let tabTop = y - 10
+        tabView = NSTabView(frame: NSRect(x: 12, y: bottomPanelTop, width: width - 24, height: tabTop - bottomPanelTop))
+        tabView.autoresizingMask = [.width, .height]
+        content.addSubview(tabView)
 
-        // ── GPU layers row ──
-        addLabel("GPU layers:", x: 16, y: y - 2, width: 110, to: content)
-        nglSlider = NSSlider(frame: NSRect(x: 130, y: y, width: 260, height: 24))
+        let rowStep: CGFloat = 36
+        let cx: CGFloat = 124   // controls column inside a tab
+
+        // Model
+        let modelView = FlippedView()
+        var ty: CGFloat = 16
+        rowLabel("GPU layers:", y: ty, in: modelView)
+        nglSlider = NSSlider(frame: NSRect(x: cx, y: ty, width: 250, height: 24))
         nglSlider.minValue = 0
         nglSlider.maxValue = 99
         nglSlider.numberOfTickMarks = 100
@@ -154,243 +164,245 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         nglSlider.toolTip = "Number of transformer layers offloaded to the GPU. 99 = maximum GPU acceleration (all layers on Metal). 0 = CPU only."
         nglSlider.target = self
         nglSlider.action = #selector(nglChanged(_:))
-        content.addSubview(nglSlider)
+        modelView.addSubview(nglSlider)
         nglLabel = NSTextField(labelWithString: "99")
-        nglLabel.frame = NSRect(x: 395, y: y - 2, width: 85, height: 18)
+        nglLabel.frame = NSRect(x: cx + 258, y: ty + 3, width: 90, height: 18)
         nglLabel.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         nglLabel.alignment = .left
         nglLabel.toolTip = "Current GPU layers value (99 = all layers on Metal GPU)."
-        content.addSubview(nglLabel)
-        y -= 34
+        modelView.addSubview(nglLabel)
+        ty += rowStep
 
-        // ── Context row ──
-        addLabel("Context:", x: 16, y: y - 2, width: 110, to: content)
-        contextPopup = NSPopUpButton(frame: NSRect(x: 130, y: y, width: 150, height: 24))
+        rowLabel("Context:", y: ty, in: modelView)
+        contextPopup = NSPopUpButton(frame: NSRect(x: cx, y: ty, width: 150, height: 24))
         contextPopup.addItems(withTitles: SettingsWindowController.standardContextValues)
         contextPopup.menu?.addItem(NSMenuItem.separator())
         contextPopup.addItem(withTitle: "Custom…")
         contextPopup.target = self
         contextPopup.action = #selector(contextChanged(_:))
         contextPopup.toolTip = "Maximum number of tokens the model can keep in memory. Larger context uses more RAM."
-        content.addSubview(contextPopup)
-        addHint("tokens", x: 290, y: y, to: content)
-        y -= 34
+        modelView.addSubview(contextPopup)
+        rowHint("tokens", x: cx + 160, y: ty, in: modelView)
+        ty += rowStep
 
-        // ── Flash attention row ──
-        addLabel("Flash attn:", x: 16, y: y - 2, width: 110, to: content)
+        rowLabel("Flash attn:", y: ty, in: modelView)
         faCheckbox = NSButton(checkboxWithTitle: "Enabled (faster inference)", target: self, action: #selector(checkboxChanged(_:)))
-        faCheckbox.frame = NSRect(x: 130, y: y, width: 200, height: 22)
+        faCheckbox.frame = NSRect(x: cx, y: ty + 1, width: 260, height: 22)
         faCheckbox.toolTip = "Flash Attention speeds up inference on most models. Leave enabled unless the model crashes."
-        content.addSubview(faCheckbox)
-        y -= 34
+        modelView.addSubview(faCheckbox)
+        ty += rowStep
 
-        // ── KV cache row ──
-        addLabel("KV cache:", x: 16, y: y - 2, width: 110, to: content)
-        cachePopup = NSPopUpButton(frame: NSRect(x: 130, y: y, width: 150, height: 24))
+        rowLabel("KV cache:", y: ty, in: modelView)
+        cachePopup = NSPopUpButton(frame: NSRect(x: cx, y: ty, width: 150, height: 24))
         cachePopup.addItems(withTitles: ["f16", "q8_0", "q4_0"])
         cachePopup.autoenablesItems = false
         cachePopup.target = self
         cachePopup.action = #selector(cacheChanged(_:))
         cachePopup.toolTip = "Quantization of the key/value cache. Lower precision = less RAM, but may reduce quality. Quantized types require Flash Attention."
-        content.addSubview(cachePopup)
-        cacheHint = NSTextField(labelWithString: "quant type (saves RAM)")
-        cacheHint.frame = NSRect(x: 290, y: y + 2, width: 230, height: 18)
-        cacheHint.font = NSFont.systemFont(ofSize: 11)
-        cacheHint.textColor = .secondaryLabelColor
-        content.addSubview(cacheHint)
-        y -= 34
+        modelView.addSubview(cachePopup)
+        cacheHint = rowHint("quant type (saves RAM)", x: cx + 160, y: ty, in: modelView, width: 230)
 
-        // ── Threads row ──
-        addLabel("Threads:", x: 16, y: y - 2, width: 110, to: content)
-        threadsField = NSTextField(frame: NSRect(x: 130, y: y, width: 80, height: 22))
+        // Performance
+        let perfView = FlippedView()
+        ty = 16
+        rowLabel("Threads:", y: ty, in: perfView)
+        threadsField = NSTextField(frame: NSRect(x: cx, y: ty + 1, width: 80, height: 22))
         threadsField.placeholderString = "0"
-        threadsField.toolTip = "CPU threads used for prompt processing. 0 = auto. On Apple Silicon, setting this to the number of P-cores is usually fastest."
-        content.addSubview(threadsField)
+        threadsField.toolTip = "CPU threads used for generation. 0 = auto: llama.cpp picks the performance cores."
+        perfView.addSubview(threadsField)
         let pcores = ServerManager.perfLevelCores()
-        let threadHint = pcores > 0 ? "0 = auto (\(pcores) P-cores detected)" : "0 = auto"
-        addHint(threadHint, x: 220, y: y, to: content)
-        y -= 34
+        rowHint(pcores > 0 ? "0 = auto (\(pcores) P-cores detected)" : "0 = auto", x: cx + 90, y: ty, in: perfView, width: 260)
+        ty += rowStep
 
-        // ── Batch size row ──
-        addLabel("Batch:", x: 16, y: y - 2, width: 110, to: content)
-        batchField = NSTextField(frame: NSRect(x: 130, y: y, width: 80, height: 22))
+        rowLabel("Batch:", y: ty, in: perfView)
+        batchField = NSTextField(frame: NSRect(x: cx, y: ty + 1, width: 80, height: 22))
         batchField.placeholderString = "2048"
         batchField.toolTip = "Number of tokens processed per logical batch. 2048 is recommended for Apple Silicon Metal."
-        content.addSubview(batchField)
-        addHint("tokens (2048 rec. for Metal)", x: 220, y: y, to: content)
-        y -= 34
+        perfView.addSubview(batchField)
+        rowHint("tokens (2048 rec. for Metal)", x: cx + 90, y: ty, in: perfView, width: 260)
+        ty += rowStep
 
-        // ── Port row ──
-        addLabel("Port:", x: 16, y: y - 2, width: 110, to: content)
-        portField = NSTextField(frame: NSRect(x: 130, y: y, width: 100, height: 22))
-        portField.placeholderString = "8080"
-        portField.toolTip = "TCP port for the llama-server HTTP API and WebUI."
-        content.addSubview(portField)
-        y -= 34
-
-        // ── Network (LAN) row ──
-        addLabel("Network:", x: 16, y: y - 2, width: 110, to: content)
-        lanCheckbox = NSButton(checkboxWithTitle: "Allow access from local network",
-                               target: self, action: #selector(lanChanged(_:)))
-        lanCheckbox.frame = NSRect(x: 130, y: y, width: 320, height: 22)
-        lanCheckbox.toolTip = "Off: the server binds 127.0.0.1 (this Mac only). On: it binds 0.0.0.0 and is reachable from other devices on your network."
-        content.addSubview(lanCheckbox)
-        y -= 24
-        lanWarning = NSTextField(labelWithString: "")
-        lanWarning.frame = NSRect(x: 130, y: y, width: 374, height: 28)
-        lanWarning.font = NSFont.systemFont(ofSize: 10)
-        lanWarning.textColor = .systemOrange
-        (lanWarning.cell as? NSTextFieldCell)?.wraps = true
-        content.addSubview(lanWarning)
-        y -= 34
-
-        // ── API key row ──
-        addLabel("API key:", x: 16, y: y - 2, width: 110, to: content)
-        apiKeyField = NSTextField(frame: NSRect(x: 130, y: y, width: 250, height: 22))
-        apiKeyField.placeholderString = "none (open access)"
-        apiKeyField.toolTip = "Optional bearer token required for API requests. The /health endpoint stays open so status checks keep working."
-        apiKeyField.target = self
-        apiKeyField.action = #selector(apiKeyEdited)
-        content.addSubview(apiKeyField)
-        let genBtn = NSButton(title: "Generate", target: self, action: #selector(generateApiKey))
-        genBtn.bezelStyle = .rounded
-        genBtn.frame = NSRect(x: 388, y: y - 1, width: 100, height: 24)
-        genBtn.toolTip = "Generate a random 32-character key."
-        content.addSubview(genBtn)
-        y -= 34
-
-        // ── Cache reuse row ──
-        addLabel("Speed:", x: 16, y: y - 2, width: 110, to: content)
-        cacheReuseCheckbox = NSButton(checkboxWithTitle: "Faster regenerate / chat (cache reuse)", target: nil, action: nil)
-        cacheReuseCheckbox.frame = NSRect(x: 130, y: y, width: 330, height: 22)
-        cacheReuseCheckbox.toolTip = "Reuse the KV cache across requests with a common prefix (--cache-reuse 256). Speeds up multi-turn chat and regenerate."
-        content.addSubview(cacheReuseCheckbox)
-        y -= 28
-
-        // ── mlock row ──
-        mlockCheckbox = NSButton(checkboxWithTitle: "Keep model in RAM (mlock)", target: nil, action: nil)
-        mlockCheckbox.frame = NSRect(x: 130, y: y, width: 330, height: 22)
-        mlockCheckbox.toolTip = "Keeps the model in RAM (no swapping). Only if you have free RAM for the whole model; limited effect with full GPU offload."
-        content.addSubview(mlockCheckbox)
-        y -= 28
-
-        // ── Threads-batch row ──
-        addLabel("Batch threads:", x: 16, y: y - 2, width: 110, to: content)
-        threadsBatchField = NSTextField(frame: NSRect(x: 130, y: y, width: 80, height: 22))
+        rowLabel("Batch threads:", y: ty, in: perfView)
+        threadsBatchField = NSTextField(frame: NSRect(x: cx, y: ty + 1, width: 80, height: 22))
         threadsBatchField.placeholderString = "auto"
         threadsBatchField.toolTip = "Threads for prompt/batch processing (-tb). Empty = auto. Modest effect with full GPU offload."
-        content.addSubview(threadsBatchField)
-        addHint("empty = auto", x: 220, y: y, to: content)
-        y -= 34
+        perfView.addSubview(threadsBatchField)
+        rowHint("empty = auto", x: cx + 90, y: ty, in: perfView)
+        ty += rowStep
 
-        // ── Reasoning effort row ──
-        addLabel("Reasoning:", x: 16, y: y - 2, width: 110, to: content)
-        effortPopup = NSPopUpButton(frame: NSRect(x: 130, y: y, width: 200, height: 24))
-        effortPopup.addItems(withTitles: SettingsWindowController.effortOptions.map { $0.title })
-        effortPopup.toolTip = "Reasoning effort passed to the model's chat template (--reasoning-effort). Only models trained with effort levels use it (e.g. gpt-oss); others ignore it — use Thinking limit for those."
-        content.addSubview(effortPopup)
-        addHint("models with effort levels", x: 340, y: y, to: content)
-        y -= 34
+        rowLabel("Speed:", y: ty, in: perfView)
+        cacheReuseCheckbox = NSButton(checkboxWithTitle: "Faster regenerate / chat (cache reuse)", target: nil, action: nil)
+        cacheReuseCheckbox.frame = NSRect(x: cx, y: ty + 1, width: 340, height: 22)
+        cacheReuseCheckbox.toolTip = "Reuse the KV cache across requests with a common prefix (--cache-reuse 256). Speeds up multi-turn chat and regenerate."
+        perfView.addSubview(cacheReuseCheckbox)
+        ty += 28
+        mlockCheckbox = NSButton(checkboxWithTitle: "Keep model in RAM (mlock)", target: nil, action: nil)
+        mlockCheckbox.frame = NSRect(x: cx, y: ty + 1, width: 340, height: 22)
+        mlockCheckbox.toolTip = "Keeps the model in RAM (no swapping). Only if you have free RAM for the whole model; limited effect with full GPU offload."
+        perfView.addSubview(mlockCheckbox)
+        ty += rowStep
 
-        // ── Thinking limit row ──
-        addLabel("Thinking limit:", x: 16, y: y - 2, width: 110, to: content)
-        budgetPopup = NSPopUpButton(frame: NSRect(x: 130, y: y, width: 200, height: 24))
-        budgetPopup.addItems(withTitles: SettingsWindowController.budgetOptions.map { $0.title })
-        budgetPopup.toolTip = "Maximum tokens a thinking model may spend reasoning before it must answer (--reasoning-budget). Works for Qwen3, DeepSeek-R1 and other thinking models. Off = answer without thinking."
-        content.addSubview(budgetPopup)
-        addHint("any thinking model", x: 340, y: y, to: content)
-        y -= 34
-
-        // ── Parallel requests row ──
-        addLabel("Parallel:", x: 16, y: y - 2, width: 110, to: content)
-        parallelPopup = NSPopUpButton(frame: NSRect(x: 130, y: y, width: 200, height: 24))
+        rowLabel("Parallel:", y: ty, in: perfView)
+        parallelPopup = NSPopUpButton(frame: NSRect(x: cx, y: ty, width: 200, height: 24))
         parallelPopup.addItems(withTitles: SettingsWindowController.parallelOptions.map { $0.title })
         parallelPopup.toolTip = "How many requests the server handles at once (-np). Auto lets llama.cpp decide (4 slots sharing one KV cache). 1 suits a single user with one app; choose more if several apps or people use the server at the same time (e.g. Open WebUI generates titles in parallel)."
-        content.addSubview(parallelPopup)
-        addHint("requests at once", x: 340, y: y, to: content)
-        y -= 34
+        perfView.addSubview(parallelPopup)
+        rowHint("requests at once", x: cx + 210, y: ty, in: perfView, width: 150)
+        ty += rowStep
 
-        // ── MTP row ──
-        addLabel("MTP:", x: 16, y: y - 2, width: 110, to: content)
-        mtpPopup = NSPopUpButton(frame: NSRect(x: 130, y: y, width: 200, height: 24))
+        rowLabel("MTP:", y: ty, in: perfView)
+        mtpPopup = NSPopUpButton(frame: NSRect(x: cx, y: ty, width: 200, height: 24))
         mtpPopup.addItems(withTitles: SettingsWindowController.mtpOptions.map { $0.title })
         mtpPopup.target = self
         mtpPopup.action = #selector(mtpChanged(_:))
         mtpPopup.toolTip = "Multi-token prediction: models that ship MTP heads can draft several tokens per step (--spec-type draft-mtp), often ~2x faster generation. The main model checks every draft, so output quality is unchanged."
-        content.addSubview(mtpPopup)
-        mtpDraftPopup = NSPopUpButton(frame: NSRect(x: 340, y: y, width: 60, height: 24))
+        perfView.addSubview(mtpPopup)
+        mtpDraftPopup = NSPopUpButton(frame: NSRect(x: cx + 208, y: ty, width: 60, height: 24))
         mtpDraftPopup.addItems(withTitles: SettingsWindowController.mtpDraftValues)
         mtpDraftPopup.toolTip = "Draft tokens per step (--spec-draft-n-max). 4 is a good default; more can be slower when drafts get rejected."
-        content.addSubview(mtpDraftPopup)
-        mtpHint = NSTextField(labelWithString: "")
-        mtpHint.frame = NSRect(x: 406, y: y + 2, width: 110, height: 18)
-        mtpHint.font = NSFont.systemFont(ofSize: 11)
-        mtpHint.textColor = .secondaryLabelColor
-        content.addSubview(mtpHint)
-        y -= 34
+        perfView.addSubview(mtpDraftPopup)
+        mtpHint = rowHint("", x: cx + 274, y: ty, in: perfView, width: 110)
 
-        // ── Extra flags row (stored in server.local.conf) ──
-        addLabel("Extra flags:", x: 16, y: y - 2, width: 110, to: content)
-        extraArgsField = NSTextField(frame: NSRect(x: 130, y: y, width: 374, height: 22))
+        // Network
+        let netView = FlippedView()
+        ty = 16
+        rowLabel("Port:", y: ty, in: netView)
+        portField = NSTextField(frame: NSRect(x: cx, y: ty + 1, width: 100, height: 22))
+        portField.placeholderString = "8080"
+        portField.toolTip = "TCP port for the llama-server HTTP API and WebUI."
+        netView.addSubview(portField)
+        ty += rowStep
+
+        rowLabel("Network:", y: ty, in: netView)
+        lanCheckbox = NSButton(checkboxWithTitle: "Allow access from local network",
+                               target: self, action: #selector(lanChanged(_:)))
+        lanCheckbox.frame = NSRect(x: cx, y: ty + 1, width: 340, height: 22)
+        lanCheckbox.toolTip = "Off: the server binds 127.0.0.1 (this Mac only). On: it binds 0.0.0.0 and is reachable from other devices on your network."
+        netView.addSubview(lanCheckbox)
+        ty += 26
+        lanWarning = NSTextField(wrappingLabelWithString: "")
+        lanWarning.frame = NSRect(x: cx, y: ty, width: 370, height: 30)
+        lanWarning.font = NSFont.systemFont(ofSize: 10)
+        lanWarning.textColor = .systemOrange
+        netView.addSubview(lanWarning)
+        ty += 40
+
+        rowLabel("API key:", y: ty, in: netView)
+        apiKeyField = NSTextField(frame: NSRect(x: cx, y: ty + 1, width: 250, height: 22))
+        apiKeyField.placeholderString = "none (open access)"
+        apiKeyField.toolTip = "Optional bearer token required for API requests. The /health endpoint stays open so status checks keep working."
+        apiKeyField.target = self
+        apiKeyField.action = #selector(apiKeyEdited)
+        netView.addSubview(apiKeyField)
+        let genBtn = NSButton(title: "Generate", target: self, action: #selector(generateApiKey))
+        genBtn.bezelStyle = .rounded
+        genBtn.frame = NSRect(x: cx + 258, y: ty, width: 100, height: 24)
+        genBtn.toolTip = "Generate a random 32-character key."
+        netView.addSubview(genBtn)
+        ty += 28
+        rowHint("Clients send it as:  Authorization: Bearer <key>", x: cx, y: ty, in: netView, width: 370)
+
+        // Advanced
+        let advView = FlippedView()
+        ty = 16
+        rowLabel("Reasoning:", y: ty, in: advView)
+        effortPopup = NSPopUpButton(frame: NSRect(x: cx, y: ty, width: 200, height: 24))
+        effortPopup.addItems(withTitles: SettingsWindowController.effortOptions.map { $0.title })
+        effortPopup.toolTip = "Reasoning effort passed to the model's chat template (--reasoning-effort). Only models trained with effort levels use it (e.g. gpt-oss); others ignore it — use Thinking limit for those."
+        advView.addSubview(effortPopup)
+        rowHint("models with effort levels", x: cx + 210, y: ty, in: advView, width: 170)
+        ty += rowStep
+
+        rowLabel("Thinking limit:", y: ty, in: advView)
+        budgetPopup = NSPopUpButton(frame: NSRect(x: cx, y: ty, width: 200, height: 24))
+        budgetPopup.addItems(withTitles: SettingsWindowController.budgetOptions.map { $0.title })
+        budgetPopup.toolTip = "Maximum tokens a thinking model may spend reasoning before it must answer (--reasoning-budget). Works for Qwen3, DeepSeek-R1 and other thinking models. Off = answer without thinking."
+        advView.addSubview(budgetPopup)
+        rowHint("any thinking model", x: cx + 210, y: ty, in: advView, width: 170)
+        ty += rowStep
+
+        rowLabel("Extra flags:", y: ty, in: advView)
+        extraArgsField = NSTextField(frame: NSRect(x: cx, y: ty + 1, width: 370, height: 22))
         extraArgsField.placeholderString = "e.g. -np 1 --spec-type draft-mtp"
         extraArgsField.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
         extraArgsField.toolTip = "Additional llama-server flags, appended last (EXTRA_ARGS). Space-separated; values with spaces are not supported. Saved in ~/.config/llama/server.local.conf, which LlamaMate never overwrites, so they survive updates. An unknown flag stops the server — check View Server Logs…"
-        content.addSubview(extraArgsField)
-        y -= 20
-        let extraHint = NSTextField(labelWithString: "Kept across updates (server.local.conf). Unknown flags stop the server.")
-        extraHint.frame = NSRect(x: 130, y: y, width: 374, height: 16)
-        extraHint.font = NSFont.systemFont(ofSize: 10)
-        extraHint.textColor = .secondaryLabelColor
-        content.addSubview(extraHint)
-        y -= 38
+        advView.addSubview(extraArgsField)
+        ty += 26
+        rowHint("Kept across updates (server.local.conf). Unknown flags stop the server.", x: cx, y: ty, in: advView, width: 370)
 
-        // ── Separator ──
-        let sep2 = separator(frame: NSRect(x: 16, y: y, width: 488, height: 1))
-        content.addSubview(sep2)
-        y -= 32
+        for (label, view) in [("Model", modelView as NSView), ("Performance", perfView), ("Network", netView), ("Advanced", advView)] {
+            let item = NSTabViewItem(identifier: label)
+            item.label = label
+            item.view = view
+            tabView.addTabViewItem(item)
+            if label == "Network" { networkTab = item }
+        }
+        let savedTab = UserDefaults.standard.integer(forKey: SettingsWindowController.selectedTabKey)
+        if savedTab >= 0 && savedTab < tabView.numberOfTabViewItems {
+            tabView.selectTabViewItem(at: savedTab)
+        }
 
-        // ── RAM estimate ──
+        // ── Bottom panel: visible from every tab ──
+        let sep = separator(frame: NSRect(x: 16, y: bottomPanelTop - 8, width: width - 32, height: 1))
+        content.addSubview(sep)
+
         ramLabel = NSTextField(wrappingLabelWithString: "")
         // Two lines: the estimate, plus an optional context warning below it.
-        ramLabel.frame = NSRect(x: 16, y: y - 14, width: 488, height: 40)
+        ramLabel.frame = NSRect(x: 16, y: 114, width: width - 32, height: 40)
         ramLabel.font = NSFont.systemFont(ofSize: 11)
         content.addSubview(ramLabel)
-        y -= 44
 
-        // ── System diagnostics ──
         diagnosticsLabel = NSTextField(wrappingLabelWithString: systemDiagnostics())
-        diagnosticsLabel.frame = NSRect(x: 16, y: y, width: 488, height: 26)
+        diagnosticsLabel.frame = NSRect(x: 16, y: 90, width: width - 32, height: 18)
         diagnosticsLabel.font = NSFont.systemFont(ofSize: 11)
         diagnosticsLabel.textColor = .secondaryLabelColor
         content.addSubview(diagnosticsLabel)
-        y -= 28
 
-        // ── App usage ──
         usageLabel = NSTextField(wrappingLabelWithString: "Gathering usage…")
-        usageLabel.frame = NSRect(x: 16, y: y, width: 488, height: 32)
+        usageLabel.frame = NSRect(x: 16, y: 52, width: width - 32, height: 34)
         usageLabel.font = NSFont.systemFont(ofSize: 11)
         usageLabel.textColor = .secondaryLabelColor
         content.addSubview(usageLabel)
-        y -= 28
 
         // ── Buttons ──
         let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancelClicked))
         cancelButton.bezelStyle = .rounded
-        cancelButton.frame = NSRect(x: 520 - 16 - 130 - 8 - 80, y: 16, width: 80, height: 24)
-        cancelButton.autoresizingMask = [.minXMargin, .minYMargin]
+        cancelButton.frame = NSRect(x: width - 16 - 130 - 8 - 80, y: 14, width: 80, height: 24)
+        cancelButton.autoresizingMask = [.minXMargin, .maxYMargin]
         cancelButton.toolTip = "Close without saving changes."
         content.addSubview(cancelButton)
 
         applyButton = NSButton(title: "Apply & Restart", target: self, action: #selector(applyClicked))
         applyButton.bezelStyle = .rounded
         applyButton.keyEquivalent = "\r"
-        applyButton.frame = NSRect(x: 520 - 16 - 130, y: 16, width: 130, height: 24)
-        applyButton.autoresizingMask = [.minXMargin, .minYMargin]
-        applyButton.toolTip = "Save settings, regenerate the start script and restart the server."
+        applyButton.frame = NSRect(x: width - 16 - 130, y: 14, width: 130, height: 24)
+        applyButton.autoresizingMask = [.minXMargin, .maxYMargin]
+        applyButton.toolTip = "Save settings and restart the server if anything changed."
         content.addSubview(applyButton)
 
         w.contentView = content
         window = w
+    }
+
+    // MARK: Tab layout helpers (tab views are flipped: y grows downwards)
+
+    private func rowLabel(_ text: String, y: CGFloat, in view: NSView) {
+        let lbl = NSTextField(labelWithString: text)
+        lbl.frame = NSRect(x: 4, y: y + 3, width: 112, height: 18)
+        lbl.font = NSFont.systemFont(ofSize: 12)
+        lbl.alignment = .right
+        view.addSubview(lbl)
+    }
+
+    @discardableResult
+    private func rowHint(_ text: String, x: CGFloat, y: CGFloat, in view: NSView, width: CGFloat = 200) -> NSTextField {
+        let lbl = NSTextField(labelWithString: text)
+        lbl.frame = NSRect(x: x, y: y + 4, width: width, height: 18)
+        lbl.font = NSFont.systemFont(ofSize: 11)
+        lbl.textColor = .secondaryLabelColor
+        lbl.lineBreakMode = .byTruncatingTail
+        view.addSubview(lbl)
+        return lbl
     }
 
     // MARK: Helpers
@@ -701,11 +713,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     }
 
     private func updateLanWarning() {
-        if lanCheckbox.state == .on && currentApiKey().isEmpty {
-            lanWarning.stringValue = "⚠️  LAN access is on without an API key — anyone on your network can use the server. Click Generate."
-        } else {
-            lanWarning.stringValue = ""
-        }
+        let warn = lanCheckbox.state == .on && currentApiKey().isEmpty
+        lanWarning.stringValue = warn
+            ? "⚠️  LAN access is on without an API key — anyone on your network can use the server. Click Generate."
+            : ""
+        // Visible from the other tabs too.
+        networkTab?.label = warn ? "Network ⚠︎" : "Network"
     }
 
     private func promptCustomContext() {
@@ -903,6 +916,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         usageTimer?.invalidate()
         usageTimer = nil
+        if let item = tabView?.selectedTabViewItem {
+            UserDefaults.standard.set(tabView.indexOfTabViewItem(item), forKey: SettingsWindowController.selectedTabKey)
+        }
     }
 
     // MARK: Diagnostics
@@ -1043,4 +1059,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         task.waitUntilExit()
         return String(data: data, encoding: .utf8)
     }
+}
+
+/// Plain view with a top-left origin, so tab rows can be laid out from the top.
+private final class FlippedView: NSView {
+    override var isFlipped: Bool { true }
 }
