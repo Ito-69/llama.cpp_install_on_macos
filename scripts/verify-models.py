@@ -103,7 +103,8 @@ def main():
                 rows.append((repo, "FAIL", f"gated ({info.get('gated')}) - needs a login"))
                 failures += 1
                 continue
-            found = pick(list_files(m["id"]))
+            files = list_files(m["id"])
+            found = pick(files)
         except urllib.error.HTTPError as e:
             rows.append((repo, "FAIL", f"HTTP {e.code}"))
             failures += 1
@@ -113,7 +114,8 @@ def main():
             failures += 1
             continue
         if not found:
-            rows.append((repo, "FAIL", "no ~4-bit GGUF file"))
+            names = ", ".join(sorted(p.split("/")[-1] for p, _ in files)[:12]) or "none"
+            rows.append((repo, "FAIL", f"no ~4-bit GGUF file (found: {names})"))
             failures += 1
             continue
         quant, path, size = found
