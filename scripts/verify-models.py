@@ -3,14 +3,17 @@
 
 For every model: the repo exists and is public (not gated), it contains a
 ~4-bit GGUF (Q4_K_M preferred), and the listed sizeGB is within 20% of that
-file's real size (split files are summed). Prints a table; exits 1 on any
-failure. Uses only the standard library. HF_TOKEN is optional.
+file's real size (split files are summed). Entries marked "mtp": true must
+have MTP tensors in that file's header (first 16 MB, fetched with a Range
+request). Prints a table; exits 1 on any failure. Uses only the standard
+library. HF_TOKEN is optional.
 """
 import json
 import os
 import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 CATALOG = sys.argv[1] if len(sys.argv) > 1 else "catalog/models.json"
@@ -26,6 +29,19 @@ def get(url):
         req.add_header("Authorization", f"Bearer {token}")
     with urllib.request.urlopen(req, timeout=30) as r:
         return json.loads(r.read().decode()), r.headers
+
+
+def header_has_mtp(repo, path):
+    """True if the GGUF header (first 16 MB) names MTP (nextn) tensors."""
+    url = f"https://huggingface.co/{repo}/resolve/main/{urllib.parse.quote(path)}"
+    req = urllib.request.Request(url, headers={"User-Agent": "llamamate-catalog-check",
+                                               "Range": "bytes=0-16777215"})
+    token = os.environ.get("HF_TOKEN")
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    with urllib.request.urlopen(req, timeout=120) as r:
+        head = r.read(16 * 1024 * 1024)
+    return b"nextn_predict_layers" in head and b".nextn." in head
 
 
 def list_files(repo):
@@ -101,8 +117,12 @@ def main():
         if real <= 0 or abs(listed - real) / real > TOLERANCE:
             rows.append((repo, "FAIL", f"sizeGB {listed} but {quant} is {real:.1f} GB ({path})"))
             failures += 1
+        elif m.get("mtp") and not header_has_mtp(repo, path):
+            rows.append((repo, "FAIL", f"marked mtp but {path} has no MTP (nextn) tensors"))
+            failures += 1
         else:
-            rows.append((repo, "ok", f"{quant} {real:.1f} GB ({path})"))
+            note = " + MTP heads" if m.get("mtp") else ""
+            rows.append((repo, "ok", f"{quant} {real:.1f} GB ({path}){note}"))
 
     width = max(len(r[0]) for r in rows) if rows else 10
     lines = [f"{s:4}  {repo:{width}}  {detail}" for repo, s, detail in rows]
