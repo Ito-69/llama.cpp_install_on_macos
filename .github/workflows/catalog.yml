@@ -1,0 +1,26 @@
+name: Model catalog
+
+# Verifies catalog/models.json against Hugging Face: every repo exists, is
+# public, has a ~4-bit GGUF, and the listed size is right. Runs when the
+# catalog changes and weekly, to catch repos that were removed or gated.
+
+on:
+  pull_request:
+    paths: ["catalog/**", "scripts/verify-models.py", ".github/workflows/catalog.yml"]
+  push:
+    branches: [main]
+    paths: ["catalog/**", "scripts/verify-models.py"]
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify models on Hugging Face
+        run: python3 scripts/verify-models.py catalog/models.json
