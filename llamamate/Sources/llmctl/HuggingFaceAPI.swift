@@ -17,6 +17,7 @@ struct HFRepoFile {
 enum HFError: Error, LocalizedError {
     case noInternet
     case rateLimited
+    case unauthorized(Int)      // 401/403: login required, licence not accepted, or bad token
     case invalidResponse
     case http(Int)
     case parse(String)
@@ -24,7 +25,8 @@ enum HFError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .noInternet:        return "No internet connection."
-        case .rateLimited:       return "Hugging Face rate limit reached. Add a token in About → HF Token… for higher limits."
+        case .rateLimited:       return "Hugging Face is limiting requests — try again in a few minutes, or add a token (Hugging Face: Set Token… at the top of this window)."
+        case .unauthorized:      return "This model needs a Hugging Face login or licence approval."
         case .invalidResponse:   return "Unexpected response from Hugging Face."
         case .http(let code):    return "Hugging Face returned HTTP \(code)."
         case .parse(let msg):    return "Could not parse Hugging Face response: \(msg)"
@@ -43,7 +45,7 @@ final class HuggingFaceAPI {
 
     private func authorizedRequest(_ url: URL) -> URLRequest {
         var req = URLRequest(url: url)
-        if let token = KeychainStore.hfToken {
+        if let token = HFToken.value {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         return req
@@ -74,6 +76,11 @@ final class HuggingFaceAPI {
             }
             if http.statusCode == 429 {
                 DispatchQueue.main.async { completion(.failure(.rateLimited)) }
+                return
+            }
+            if http.statusCode == 401 || http.statusCode == 403 {
+                let code = http.statusCode
+                DispatchQueue.main.async { completion(.failure(.unauthorized(code))) }
                 return
             }
             guard (200...299).contains(http.statusCode), let data = data else {
@@ -113,6 +120,11 @@ final class HuggingFaceAPI {
                 }
                 if http.statusCode == 429 {
                     DispatchQueue.main.async { completion(.failure(.rateLimited)) }
+                    return
+                }
+                if http.statusCode == 401 || http.statusCode == 403 {
+                    let code = http.statusCode
+                    DispatchQueue.main.async { completion(.failure(.unauthorized(code))) }
                     return
                 }
                 guard (200...299).contains(http.statusCode), let data = data,

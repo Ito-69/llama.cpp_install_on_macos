@@ -72,6 +72,8 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
 
     private var window: NSPanel!
     private var headerLabel: NSTextField!
+    private var hfStatusLabel: NSTextField!
+    private var hfButton: NSButton!
     private var tabView: NSTabView!
     private var descriptionLabel: NSTextField!
     private var progressBar: NSProgressIndicator!
@@ -113,6 +115,56 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         adjustLayout()
         refreshActive()
         refreshInstalled()
+        refreshHFStatus()
+    }
+
+    // MARK: Hugging Face account
+
+    @objc private func editHFToken() {
+        HFToken.presentEditor(parent: window)
+    }
+
+    @objc private func hfTokenChanged() {
+        refreshHFStatus()
+    }
+
+    private func refreshHFStatus() {
+        guard hfStatusLabel != nil else { return }
+        guard let current = HFToken.current else {
+            hfStatusLabel.stringValue = "Hugging Face: not signed in"
+            hfStatusLabel.textColor = .secondaryLabelColor
+            hfButton.title = "Set Token…"
+            return
+        }
+        let via = current.source == .cli ? " (CLI login)" : ""
+        hfStatusLabel.stringValue = "Hugging Face: checking…"
+        hfButton.title = "Change…"
+        HFToken.whoami(current.token) { [weak self] result in
+            guard let self = self else { return }
+            switch result {
+            case .success(let name):
+                self.hfStatusLabel.stringValue = "Hugging Face: ✓ \(name)\(via)"
+                self.hfStatusLabel.textColor = .secondaryLabelColor
+            case .failure(let error):
+                if (error as? HFToken.TokenError) == .rejected {
+                    self.hfStatusLabel.stringValue = "Hugging Face: token rejected"
+                    self.hfStatusLabel.textColor = .systemOrange
+                } else {
+                    // Offline or Hugging Face unreachable: the token may still be fine.
+                    self.hfStatusLabel.stringValue = "Hugging Face: token set\(via)"
+                    self.hfStatusLabel.textColor = .secondaryLabelColor
+                }
+            }
+        }
+    }
+
+    /// Rate-limit and login/licence errors get an explanation with the next step.
+    private func handleHFError(_ err: HFError, repo: String?) {
+        switch err {
+        case .rateLimited:            HFToken.handleAccessError(status: 429, repo: repo, parent: window)
+        case .unauthorized(let code): HFToken.handleAccessError(status: code, repo: repo, parent: window)
+        default: break
+        }
     }
 
     // MARK: Window construction
@@ -138,6 +190,23 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         headerLabel.frame = NSRect(x: 16, y: 444, width: 708, height: 20)
         headerLabel.font = NSFont.boldSystemFont(ofSize: 12)
         headerLabel.autoresizingMask = [.width, .minYMargin]
+
+        // Hugging Face account (top right): only needed for gated models or
+        // higher download limits, so it lives here instead of an install prompt.
+        hfStatusLabel = NSTextField(labelWithString: "")
+        hfStatusLabel.font = NSFont.systemFont(ofSize: 11)
+        hfStatusLabel.textColor = .secondaryLabelColor
+        hfStatusLabel.alignment = .right
+        hfStatusLabel.lineBreakMode = .byTruncatingTail
+        hfStatusLabel.autoresizingMask = [.minXMargin, .minYMargin]
+        hfButton = NSButton(title: "Set Token…", target: self, action: #selector(editHFToken))
+        hfButton.bezelStyle = .rounded
+        hfButton.controlSize = .small
+        hfButton.font = NSFont.systemFont(ofSize: 11)
+        hfButton.autoresizingMask = [.minXMargin, .minYMargin]
+        hfButton.toolTip = "Hugging Face token — optional. Raises download limits and lets you use gated models."
+        NotificationCenter.default.addObserver(self, selector: #selector(hfTokenChanged),
+                                               name: .hfTokenChanged, object: nil)
 
         // Tab view (takes all space between header and footer)
         tabView = NSTabView(frame: NSRect(x: 16, y: 36, width: 708, height: 400))
@@ -206,6 +275,8 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         closeButton.isHidden = true
 
         content.addSubview(headerLabel)
+        content.addSubview(hfStatusLabel)
+        content.addSubview(hfButton)
         content.addSubview(tabView)
         content.addSubview(descriptionLabel)
         content.addSubview(progressBar)
@@ -354,6 +425,7 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
                 self.searchStatus.stringValue = models.isEmpty ? "No GGUF models found for '\(q)'." : "\(models.count) results."
             case .failure(let err):
                 self.searchStatus.stringValue = err.errorDescription ?? "Search failed."
+                self.handleHFError(err, repo: nil)
             }
         }
     }
@@ -648,6 +720,7 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
                 let msg = err.errorDescription ?? "Could not load repo."
                 if let sourceStatus = sourceStatus { sourceStatus.stringValue = msg }
                 else { self.searchStatus.stringValue = msg }
+                self.handleHFError(err, repo: repo)
             }
         }
     }
@@ -748,6 +821,7 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
             },
             completion: { [weak self] success in
                 guard let self = self else { return }
+                let failureStatus = self.activeDownloadTask?.failureStatus
                 self.isDownloading = false
                 self.activeDownloadTask = nil
                 self.progressBar.isHidden = true
@@ -766,6 +840,9 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
                     }
                 } else {
                     self.progressLabel.stringValue = "Download failed."
+                    if let status = failureStatus, [401, 403, 429].contains(status) {
+                        HFToken.handleAccessError(status: status, repo: repo, parent: self.window)
+                    }
                 }
             }
         )
@@ -811,7 +888,11 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         let headerH: CGFloat = 34
         let topY = bounds.height - headerH
 
-        headerLabel.frame = NSRect(x: 16, y: topY, width: bounds.width - 32, height: 20)
+        let hfButtonW: CGFloat = 96
+        let hfLabelW: CGFloat = 220
+        hfButton.frame = NSRect(x: bounds.width - 16 - hfButtonW, y: topY - 2, width: hfButtonW, height: 22)
+        hfStatusLabel.frame = NSRect(x: hfButton.frame.minX - 6 - hfLabelW, y: topY + 1, width: hfLabelW, height: 16)
+        headerLabel.frame = NSRect(x: 16, y: topY, width: max(120, hfStatusLabel.frame.minX - 8 - 16), height: 20)
 
         if isDownloading || !closeButton.isHidden {
             descriptionLabel.isHidden = true
