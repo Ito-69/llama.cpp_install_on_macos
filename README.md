@@ -100,6 +100,8 @@ The llama icon shows the server state: **full** = running, **half-faded** = load
 - **Installed** — every model in `~/models/` (✓ = active). **Make Active** switches and restarts the server; **Delete…** removes the file (all parts of a split model).
 - **Install from URL** — paste `owner/repo`, `https://huggingface.co/owner/repo`, or a direct `…/resolve/main/<file>.gguf` link.
 
+**Community models** — tick **Show community models (uncensored / fine-tunes)** to add verified models from independent authors (abliterated/uncensored versions and merges, several with MTP). It's off by default and explained the first time you turn it on: these models are not made by the original model makers, and uncensored ones answer requests the original would refuse — check each model card.
+
 The shortlist comes from [`catalog/models.json`](catalog/models.json) in this repository, so it can be updated without a new app version (the app checks for a newer list every few hours and keeps a built-in copy for offline use). Every entry is checked against Hugging Face by CI — the repo is public, the ~4-bit file exists and its size is right, and models listed with MTP really include the MTP heads — on each change and weekly.
 
 Downloads go to `~/models/` and can be cancelled and resumed — even after quitting the app. A file is only saved once its size matches Hugging Face's, and a download won't start without enough free disk space.

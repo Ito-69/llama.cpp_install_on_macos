@@ -22,8 +22,11 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
     private var closeButton: NSButton!
 
     private var browseTable: NSTableView!
-    private var browseData: [CuratedModel] = ModelCatalog.shared.models
+    private var browseData: [CuratedModel] = ModelsWindowController.shortlist()
     private var searchField: NSSearchField!
+    private var communityCheckbox: NSButton!
+    private static let showCommunityKey = "showCommunityModels"
+    private static let communityAcknowledgedKey = "communityModelsAcknowledged"
     private var searchTable: NSTableView!
     private var searchData: [HFModelSummary] = []
     private var searchStatus: NSTextField!
@@ -56,7 +59,7 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         refreshHFStatus()
         ModelCatalog.shared.refreshIfStale { [weak self] changed in
             guard let self = self, changed else { return }
-            self.browseData = ModelCatalog.shared.models
+            self.browseData = ModelsWindowController.shortlist()
             self.browseTable?.reloadData()
         }
     }
@@ -273,6 +276,15 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         searchField.isHidden = true
         v.addSubview(searchField)
 
+        // Opt-in community models (shortlist mode only, where the search field isn't shown).
+        communityCheckbox = NSButton(checkboxWithTitle: "Show community models (uncensored / fine-tunes)",
+                                     target: self, action: #selector(communityToggled(_:)))
+        communityCheckbox.frame = NSRect(x: 232, y: 344, width: 460, height: 22)
+        communityCheckbox.autoresizingMask = [.minYMargin]
+        communityCheckbox.toolTip = "Adds fine-tunes and uncensored (abliterated) versions published by independent authors on Hugging Face."
+        communityCheckbox.state = UserDefaults.standard.bool(forKey: ModelsWindowController.showCommunityKey) ? .on : .off
+        v.addSubview(communityCheckbox)
+
         // Search status (only shown in search mode)
         searchStatus = NSTextField(labelWithString: "Type a query and press Return.")
         searchStatus.frame = NSRect(x: 16, y: 320, width: 676, height: 18)
@@ -353,9 +365,43 @@ final class ModelsWindowController: NSObject, NSWindowDelegate {
         return v
     }
 
+    /// Main shortlist, plus the community list when the user opted in.
+    private static func shortlist() -> [CuratedModel] {
+        let catalog = ModelCatalog.shared
+        let showCommunity = UserDefaults.standard.bool(forKey: showCommunityKey)
+        return catalog.models + (showCommunity ? catalog.community : [])
+    }
+
+    @objc private func communityToggled(_ sender: NSButton) {
+        let defaults = UserDefaults.standard
+        if sender.state == .on && !defaults.bool(forKey: Self.communityAcknowledgedKey) {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Show community models?"
+            alert.informativeText = """
+            Community models are fine-tunes and merges published by independent authors on Hugging Face — not by the companies that made the original models. Quality and maintenance vary.
+
+            Uncensored (“abliterated”) models have had their refusal behaviour removed. They answer requests the original model declines and can produce offensive, harmful or wrong content. You are responsible for how you use them.
+
+            LlamaMate checks that each listed model exists, its size is right and MTP models really include MTP heads — not what the model says. Read each model card for its licence and intended use.
+            """
+            alert.addButton(withTitle: "Show Community Models")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else {
+                sender.state = .off
+                return
+            }
+            defaults.set(true, forKey: Self.communityAcknowledgedKey)
+        }
+        defaults.set(sender.state == .on, forKey: Self.showCommunityKey)
+        browseData = Self.shortlist()
+        browseTable.reloadData()
+    }
+
     @objc private func browseModeChanged(_ popup: NSPopUpButton) {
         let isSearch = popup.indexOfSelectedItem == 1
         searchField.isHidden = !isSearch
+        communityCheckbox.isHidden = isSearch
         searchStatus.isHidden = !isSearch
         searchContainerView.isHidden = !isSearch
         browseContainerView.isHidden = isSearch
@@ -901,7 +947,8 @@ extension ModelsWindowController: NSTableViewDataSource, NSTableViewDelegate {
         switch table.tag {
         case 100:
             let m = browseData[row]
-            descriptionLabel.stringValue = "Repo: \(m.id)  •  \(m.sizeText)  •  needs \(m.ramText) RAM  •  \(m.description)"
+            let source = m.isCommunity ? "Community model  •  " : ""
+            descriptionLabel.stringValue = "\(source)Repo: \(m.id)  •  \(m.sizeText)  •  needs \(m.ramText) RAM  •  \(m.description)"
             descriptionLabel.isHidden = false
         case 101:
             let m = searchData[row]
@@ -936,7 +983,7 @@ extension ModelsWindowController: NSTableViewDataSource, NSTableViewDelegate {
             case "name": text = m.displayName
             case "size": text = m.sizeText
             case "ram":  text = m.ramText
-            case "desc": text = m.description
+            case "desc": text = m.isCommunity ? "Community · \(m.description)" : m.description
             default: text = ""
             }
         case 101:

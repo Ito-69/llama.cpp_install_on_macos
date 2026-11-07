@@ -9,6 +9,8 @@ struct CuratedModel: Decodable {
     let sizeGB: Double        // size of the ~4-bit file (verified in CI)
     let minRAM: Int           // recommended Mac memory in GB
     let description: String
+    /// From the opt-in "community" list (fine-tunes / uncensored by third parties).
+    var isCommunity = false
 
     enum CodingKeys: String, CodingKey {
         case id, sizeGB, minRAM, description
@@ -28,6 +30,14 @@ struct CuratedModel: Decodable {
 private struct CatalogFile: Decodable {
     let version: Int
     let models: [CuratedModel]
+    /// Opt-in list. A separate key so app versions without the opt-in
+    /// (v2.5.3) never show these entries.
+    let community: [CuratedModel]?
+}
+
+private struct Catalog {
+    var models: [CuratedModel]
+    var community: [CuratedModel]
 }
 
 /// The shortlist shown in Models → Browse. It lives in the repository
@@ -46,18 +56,26 @@ final class ModelCatalog {
     private var refreshing = false
 
     private(set) var models: [CuratedModel] = []
+    private(set) var community: [CuratedModel] = []
 
     private init() {
-        models = Self.load(path: cachePath) ?? bundledPath.flatMap { Self.load(path: $0) } ?? []
+        let catalog = Self.load(path: cachePath) ?? bundledPath.flatMap { Self.load(path: $0) }
+        models = catalog?.models ?? []
+        community = catalog?.community ?? []
     }
 
-    private static func decode(_ data: Data) -> [CuratedModel]? {
+    private static func decode(_ data: Data) -> Catalog? {
         guard let file = try? JSONDecoder().decode(CatalogFile.self, from: data),
               file.version == 1, !file.models.isEmpty else { return nil }
-        return file.models
+        let community = (file.community ?? []).map { m -> CuratedModel in
+            var c = m
+            c.isCommunity = true
+            return c
+        }
+        return Catalog(models: file.models, community: community)
     }
 
-    private static func load(path: String) -> [CuratedModel]? {
+    private static func load(path: String) -> Catalog? {
         guard let data = FileManager.default.contents(atPath: path) else { return nil }
         return decode(data)
     }
@@ -84,9 +102,12 @@ final class ModelCatalog {
                 guard let fresh = fresh, let data = data else { return }
                 try? FileManager.default.createDirectory(atPath: APP_SUPPORT_DIR, withIntermediateDirectories: true)
                 try? data.write(to: URL(fileURLWithPath: self.cachePath), options: .atomic)
-                let changed = fresh.map(\.id) != self.models.map(\.id)
-                    || fresh.map(\.description) != self.models.map(\.description)
-                self.models = fresh
+                let all = fresh.models + fresh.community
+                let old = self.models + self.community
+                let changed = all.map(\.id) != old.map(\.id)
+                    || all.map(\.description) != old.map(\.description)
+                self.models = fresh.models
+                self.community = fresh.community
                 completion(changed)
             }
         }.resume()
