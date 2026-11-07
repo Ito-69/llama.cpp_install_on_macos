@@ -102,7 +102,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         KeychainStore.migrateHFTokenFromDefaultsIfNeeded()
         copyBundledScript()
         migrateStartScriptIfOutdated()
-        if isInstalled() { ConfigManager.shared.writeLocalConfigTemplateIfMissing() }
+        if isInstalled() {
+            ConfigManager.shared.writeLocalConfigTemplateIfMissing()
+            ConfigManager.shared.refreshModelCapabilities()
+        }
         // brew upgrade deletes the LaunchAgent plist; put it back (file only —
         // the server is not started here).
         ServerManager.shared.ensureLaunchAgentPlist()
@@ -155,6 +158,10 @@ final class ServerManager {
     private(set) var threadsBatch = ""
     private(set) var reasoningEffort = "default"
     private(set) var reasoningBudget = ""
+    private(set) var mtp = "auto"
+    private(set) var mtpDraft = "4"
+    private(set) var modelHasMTP = "0"
+    private(set) var parallel = ""
     private(set) var profile = "balanced"
 
     var onStatusChange: (() -> Void)?
@@ -236,6 +243,10 @@ final class ServerManager {
         threadsBatch = config.threadsBatch
         reasoningEffort = config.reasoningEffort.isEmpty ? "default" : config.reasoningEffort
         reasoningBudget = config.reasoningBudget
+        mtp = config.mtp.isEmpty ? "auto" : config.mtp
+        mtpDraft = config.mtpDraft.isEmpty ? "4" : config.mtpDraft
+        modelHasMTP = config.modelHasMTP
+        parallel = config.parallel
         profile = config.profile
         apiKey = config.apiKey
     }
@@ -356,6 +367,11 @@ final class ServerManager {
                 self.startServer()
             }
         }
+    }
+
+    /// Re-reads server.conf without touching the running server.
+    func reloadConfig() {
+        loadConfig()
     }
 
     func reloadConfigAndRestart() {

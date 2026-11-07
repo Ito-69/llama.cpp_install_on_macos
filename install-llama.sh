@@ -82,6 +82,10 @@ MLOCK="${MLOCK:-0}"
 THREADS_BATCH="${THREADS_BATCH:-}"
 REASONING_EFFORT="${REASONING_EFFORT:-default}"
 REASONING_BUDGET="${REASONING_BUDGET:-}"
+MTP="${MTP:-auto}"
+MTP_DRAFT="${MTP_DRAFT:-4}"
+MODEL_HAS_MTP="${MODEL_HAS_MTP:-0}"
+PARALLEL="${PARALLEL:-}"
 MODE_UPDATE=0
 MODE_STATUS=0
 MODE_CHECK_UPDATE=0
@@ -129,7 +133,7 @@ while [[ $# -gt 0 ]]; do
     --port)           [[ "${2:-}" =~ ^[0-9]+$ ]] || die "--port must be a number"; PORT="$2"; shift ;;
     --context)        [[ "${2:-}" =~ ^[0-9]+$ ]] || die "--context must be a number"; CONTEXT="$2"; shift ;;
     --model-repo)     MODEL_REPO="$2"; shift ;;
-    --model-file)     MODEL_FILE="$2"; MODEL_PATH="${MODELS_DIR}/${MODEL_FILE}"; shift ;;
+    --model-file)     MODEL_FILE="$2"; MODEL_PATH="${MODELS_DIR}/${MODEL_FILE}"; MODEL_HAS_MTP_RESET=1; shift ;;
     -h|--help)        usage ;;
     *)                die "Unknown argument: $1 (use --help)" ;;
   esac
@@ -302,6 +306,12 @@ save_config() {
   san_num MLOCK 0
   san_num THREADS_BATCH ""
   san_num REASONING_BUDGET ""
+  san_num MTP_DRAFT 4
+  san_num MODEL_HAS_MTP 0
+  san_num PARALLEL ""
+  case "${MTP:-auto}" in auto | off) ;; *) warn "Invalid MTP='${MTP}'; using auto"; MTP="auto" ;; esac
+  # A different model may not have MTP heads; LlamaMate re-detects on launch.
+  [[ "${MODEL_HAS_MTP_RESET:-0}" == "1" ]] && MODEL_HAS_MTP=0
   case "${REASONING_EFFORT:-default}" in
     default | minimal | low | medium | high | xhigh | max) ;;
     *) warn "Invalid REASONING_EFFORT='${REASONING_EFFORT}'; using default"; REASONING_EFFORT="default" ;;
@@ -312,7 +322,7 @@ save_config() {
   local preserved=""
   if [[ -f "$CONFIG_FILE" ]]; then
     preserved="$(grep -E '^[[:space:]]*(export[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*=' "$CONFIG_FILE" \
-      | grep -vE '^[[:space:]]*(export[[:space:]]+)?(LLAMA_VERSION|MODEL_LABEL|MODEL_REPO|MODEL_FILE|MODEL_PATH|PORT|CONTEXT|HOST|API_KEY|NGL|FA|CTK|CTV|THREADS|BATCH_SIZE|UBATCH_SIZE|CACHE_REUSE|MLOCK|THREADS_BATCH|REASONING_EFFORT|REASONING_BUDGET|PROFILE)=' \
+      | grep -vE '^[[:space:]]*(export[[:space:]]+)?(LLAMA_VERSION|MODEL_LABEL|MODEL_REPO|MODEL_FILE|MODEL_PATH|PORT|CONTEXT|HOST|API_KEY|NGL|FA|CTK|CTV|THREADS|BATCH_SIZE|UBATCH_SIZE|CACHE_REUSE|MLOCK|THREADS_BATCH|REASONING_EFFORT|REASONING_BUDGET|MTP|MTP_DRAFT|MODEL_HAS_MTP|PARALLEL|PROFILE)=' \
       || true)"
   fi
 
@@ -341,6 +351,10 @@ MLOCK="$(sh_escape "${MLOCK:-0}")"
 THREADS_BATCH="$(sh_escape "${THREADS_BATCH:-}")"
 REASONING_EFFORT="$(sh_escape "${REASONING_EFFORT:-default}")"
 REASONING_BUDGET="$(sh_escape "${REASONING_BUDGET:-}")"
+MTP="$(sh_escape "${MTP:-auto}")"
+MTP_DRAFT="$(sh_escape "${MTP_DRAFT:-4}")"
+MODEL_HAS_MTP="$(sh_escape "${MODEL_HAS_MTP:-0}")"
+PARALLEL="$(sh_escape "${PARALLEL:-}")"
 PROFILE="$(sh_escape "${PROFILE:-balanced}")"
 EOF
   # May contain an API key — keep it owner-only.
@@ -384,6 +398,7 @@ apply_model_preset() {
       ;;
   esac
   sync_model_path
+  MODEL_HAS_MTP_RESET=1
   ok "Model: ${MODEL_LABEL}"
 }
 
@@ -1278,6 +1293,8 @@ san UBATCH_SIZE 512
 san CACHE_REUSE 256
 san THREADS_BATCH ""
 san REASONING_BUDGET ""
+san MTP_DRAFT 4
+san PARALLEL ""
 
 # ── Effective values (with defaults) ─────────────────────────────────────────
 FA_VAL="${FA:-1}"
@@ -1285,6 +1302,8 @@ CTK_VAL="${CTK:-q8_0}"
 CTV_VAL="${CTV:-q8_0}"
 CTX_VAL="${CONTEXT:-8192}"
 CACHE_REUSE="${CACHE_REUSE:-256}"
+MTP_DRAFT="${MTP_DRAFT:-4}"
+if [[ "${MTP_DRAFT}" -lt 1 || "${MTP_DRAFT}" -gt 16 ]]; then MTP_DRAFT=4; fi
 
 # ── Flash Attention / KV-cache guard ─────────────────────────────────────────
 # On Metal a quantized KV cache (q8_0/q4_0) requires Flash Attention. If a
@@ -1414,18 +1433,46 @@ if [[ -n "${REASONING_BUDGET:-}" ]] && supports '--reasoning-budget'; then
   fi
 fi
 
-# ── User extra flags ─────────────────────────────────────────────────────────
+# ── Parallel slots ───────────────────────────────────────────────────────────
+# Empty = llama.cpp auto (4 slots sharing one KV pool). An explicit -np turns
+# the shared pool off and splits the context between slots, so for N > 1 we
+# also ask for a unified KV cache: every slot can use the full context.
+if [[ -n "${PARALLEL:-}" && "${PARALLEL}" != "0" ]] && { supports '--parallel' || supports '-np,'; }; then
+  ARGS+=( -np "${PARALLEL}" )
+  if [[ "${PARALLEL}" -gt 1 ]] && supports '--kv-unified'; then
+    ARGS+=( --kv-unified )
+  fi
+fi
+
+# ── User extra flags (parsed here so built-in options can defer to them) ─────
 # EXTRA_ARGS (best kept in server.local.conf) is appended last, so it can also
 # override anything above. Space-separated; values containing spaces are not
 # supported. Flags are passed as-is: an unknown flag stops the server, and the
 # error shows in the server log.
+EXTRA=()
 if [[ -n "${EXTRA_ARGS:-}" ]]; then
-  EXTRA=()
   read -r -a EXTRA <<< "${EXTRA_ARGS}" || true
-  if [[ ${#EXTRA[@]} -gt 0 ]]; then
-    ARGS+=( "${EXTRA[@]}" )
-    echo "[LlamaMate] Extra flags (EXTRA_ARGS): ${EXTRA[*]}" >&2
+fi
+
+# ── MTP speculative decoding ─────────────────────────────────────────────────
+# MODEL_HAS_MTP is written by LlamaMate after reading the model's GGUF header
+# (nextn_predict_layers > 0 and *.nextn.* tensors present). Drafts are checked
+# by the main model, so output quality is unchanged. Skipped when EXTRA_ARGS
+# already sets a --spec-type, so the user's choice wins.
+if [[ "${MTP:-auto}" != "off" && "${MODEL_HAS_MTP:-0}" == "1" && " ${EXTRA_ARGS:-} " != *" --spec-type "* ]]; then
+  if supports 'draft-mtp'; then
+    ARGS+=( --spec-type draft-mtp )
+    if supports '--spec-draft-n-max'; then
+      ARGS+=( --spec-draft-n-max "${MTP_DRAFT:-4}" )
+    fi
+  else
+    echo "[LlamaMate] Model has MTP heads, but this llama-server has no draft-mtp; update llama.cpp. Skipping." >&2
   fi
+fi
+
+if [[ ${#EXTRA[@]} -gt 0 ]]; then
+  ARGS+=( "${EXTRA[@]}" )
+  echo "[LlamaMate] Extra flags (EXTRA_ARGS): ${EXTRA[*]}" >&2
 fi
 
 # ── Log rotation ─────────────────────────────────────────────────────────────

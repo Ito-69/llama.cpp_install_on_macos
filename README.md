@@ -174,6 +174,11 @@ Three presets that set GPU layers, flash attention, and KV cache quantization to
 | **Batch size** | Tokens processed per batch. `512` is a good default. |
 | **Port** | HTTP server port (default `8080`). |
 
+### Speed: MTP and parallel requests
+
+- **MTP** — for models that ship multi-token-prediction heads (LlamaMate detects them in the GGUF header), speculative decoding is enabled automatically (`--spec-type draft-mtp --spec-draft-n-max 4`). Often ~2× faster generation with identical output. Set **MTP: Off** to disable.
+- **Parallel** — how many requests llama-server handles at once (`-np`). **Auto** keeps llama.cpp's default; **1** is best for a single user with one app. With 2 or more, LlamaMate also passes `--kv-unified` so every slot can use the full context.
+
 ### RAM safety
 
 When you apply settings, the window shows an estimate of model + context RAM vs your system's available memory. If the estimate exceeds available RAM, a warning is shown. The start script also checks before launching `llama-server` and logs a warning if the model is likely too large.
