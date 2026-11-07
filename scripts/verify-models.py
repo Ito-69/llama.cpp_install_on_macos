@@ -17,7 +17,7 @@ import urllib.parse
 import urllib.request
 
 CATALOG = sys.argv[1] if len(sys.argv) > 1 else "catalog/models.json"
-PREFERRED = ["Q4_K_M", "UD-Q4_K_XL", "Q4_K_XL", "MXFP4", "Q4_0", "Q4_K_S", "IQ4_XS", "Q4_1"]
+PREFERRED = ["Q4_K_M", "UD-Q4_K_XL", "Q4_K_XL", "Q4_K", "MXFP4", "Q4_0", "Q4_K_S", "IQ4_XS", "Q4_1"]
 TOLERANCE = 0.20
 SPLIT = re.compile(r"-(\d{5})-of-(\d{5})\.gguf$")
 
@@ -79,7 +79,10 @@ def main():
     with open(CATALOG) as f:
         catalog = json.load(f)
     assert catalog.get("version") == 1, "unsupported catalog version"
-    models = catalog["models"]
+    # "models" is the main shortlist; "community" holds opt-in fine-tunes
+    # (separate key, so app versions without the opt-in never show them).
+    models = [dict(m, _list="models") for m in catalog["models"]]
+    models += [dict(m, _list="community") for m in catalog.get("community", [])]
     ids = [m["id"] for m in models]
     failures = 0
     rows = []
@@ -91,14 +94,17 @@ def main():
             if key not in m:
                 rows.append((m.get("id", "?"), "FAIL", f"missing '{key}'"))
                 failures += 1
-        repo = m["id"]
+        repo = m["id"] if m["_list"] == "models" else m["id"] + "  [community]"
+        if "id" not in m:
+            continue
         try:
-            info, _ = get(f"https://huggingface.co/api/models/{repo}")
+            info, _ = get(f"https://huggingface.co/api/models/{m['id']}")
             if info.get("gated"):
                 rows.append((repo, "FAIL", f"gated ({info.get('gated')}) - needs a login"))
                 failures += 1
                 continue
-            found = pick(list_files(repo))
+            files = list_files(m["id"])
+            found = pick(files)
         except urllib.error.HTTPError as e:
             rows.append((repo, "FAIL", f"HTTP {e.code}"))
             failures += 1
@@ -108,7 +114,8 @@ def main():
             failures += 1
             continue
         if not found:
-            rows.append((repo, "FAIL", "no ~4-bit GGUF file"))
+            names = ", ".join(sorted(p.split("/")[-1] for p, _ in files)[:12]) or "none"
+            rows.append((repo, "FAIL", f"no ~4-bit GGUF file (found: {names})"))
             failures += 1
             continue
         quant, path, size = found
@@ -117,7 +124,7 @@ def main():
         if real <= 0 or abs(listed - real) / real > TOLERANCE:
             rows.append((repo, "FAIL", f"sizeGB {listed} but {quant} is {real:.1f} GB ({path})"))
             failures += 1
-        elif m.get("mtp") and not header_has_mtp(repo, path):
+        elif m.get("mtp") and not header_has_mtp(m["id"], path):
             rows.append((repo, "FAIL", f"marked mtp but {path} has no MTP (nextn) tensors"))
             failures += 1
         else:
