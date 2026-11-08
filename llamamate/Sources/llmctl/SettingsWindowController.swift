@@ -63,10 +63,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         ("8192 tokens", "8192"),
     ]
 
-    /// Parallel request slots: (menu title, server.conf value). "" = llama.cpp auto.
+    /// Parallel request slots: (menu title, server.conf value).
+    /// Empty in server.conf means 1 (the default); "0" = llama.cpp auto.
     static let parallelOptions: [(title: String, value: String)] = [
-        ("Auto (llama.cpp default)", ""),
-        ("1 — single user", "1"),
+        ("1 — single user (default)", "1"),
+        ("Auto (llama.cpp decides)", "0"),
         ("2", "2"),
         ("4", "4"),
     ]
@@ -245,7 +246,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         rowLabel("Parallel:", y: ty, in: perfView)
         parallelPopup = NSPopUpButton(frame: NSRect(x: cx, y: ty, width: 200, height: 24))
         parallelPopup.addItems(withTitles: SettingsWindowController.parallelOptions.map { $0.title })
-        parallelPopup.toolTip = "How many requests the server handles at once (-np). Auto lets llama.cpp decide (4 slots sharing one KV cache). 1 suits a single user with one app; choose more if several apps or people use the server at the same time (e.g. Open WebUI generates titles in parallel)."
+        parallelPopup.toolTip = "How many requests the server handles at once (-np). 1 (default) is fastest for a single user and uses the least memory, especially with MTP; extra requests wait their turn. Choose more, or Auto (llama.cpp decides, usually 4), if several apps or people use the server at the same time (e.g. Open WebUI generates titles in parallel)."
         perfView.addSubview(parallelPopup)
         rowHint("requests at once", x: cx + 210, y: ty, in: perfView, width: 150)
         ty += rowStep
@@ -628,11 +629,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         while parallelPopup.numberOfItems > SettingsWindowController.parallelOptions.count {
             parallelPopup.removeItem(at: parallelPopup.numberOfItems - 1)
         }
-        if let idx = SettingsWindowController.parallelOptions.firstIndex(where: { $0.value == sm.parallel }) {
+        let parallel = sm.parallel.isEmpty ? "1" : sm.parallel
+        if let idx = SettingsWindowController.parallelOptions.firstIndex(where: { $0.value == parallel }) {
             parallelPopup.selectItem(at: idx)
-        } else if !sm.parallel.isEmpty, sm.parallel.allSatisfy({ $0.isNumber }) {
-            parallelPopup.addItem(withTitle: sm.parallel)
-            parallelPopup.lastItem?.representedObject = sm.parallel
+        } else if parallel.allSatisfy({ $0.isNumber }) {
+            parallelPopup.addItem(withTitle: parallel)
+            parallelPopup.lastItem?.representedObject = parallel
             parallelPopup.selectItem(at: parallelPopup.numberOfItems - 1)
         } else {
             parallelPopup.selectItem(at: 0)

@@ -44,7 +44,7 @@ san CACHE_REUSE 256
 san THREADS_BATCH ""
 san REASONING_BUDGET ""
 san MTP_DRAFT 4
-san PARALLEL ""
+san PARALLEL 1
 
 # ── Effective values (with defaults) ─────────────────────────────────────────
 FA_VAL="${FA:-1}"
@@ -184,10 +184,12 @@ if [[ -n "${REASONING_BUDGET:-}" ]] && supports '--reasoning-budget'; then
 fi
 
 # ── Parallel slots ───────────────────────────────────────────────────────────
-# Empty = llama.cpp auto (4 slots sharing one KV pool). An explicit -np turns
+# Empty = 1 slot (one user, one app: fastest, least memory, best with MTP).
+# 0 = llama.cpp auto (4 slots sharing one KV pool). An explicit -np turns
 # the shared pool off and splits the context between slots, so for N > 1 we
 # also ask for a unified KV cache: every slot can use the full context.
-if [[ -n "${PARALLEL:-}" && "${PARALLEL}" != "0" ]] && { supports '--parallel' || supports '-np,'; }; then
+PARALLEL="${PARALLEL:-1}"
+if [[ "${PARALLEL}" != "0" ]] && { supports '--parallel' || supports '-np,'; }; then
   ARGS+=( -np "${PARALLEL}" )
   if [[ "${PARALLEL}" -gt 1 ]] && supports '--kv-unified'; then
     ARGS+=( --kv-unified )
