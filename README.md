@@ -149,7 +149,7 @@ On Apple Silicon the profiles also set Threads to the number of performance core
 | **Batch threads** | Threads for prompt processing (`-tb`); empty = auto. |
 | **Faster regenerate / chat** | Reuses the prompt cache between requests (`--cache-reuse 256`). On by default. |
 | **Keep model in RAM** | Locks the model in memory (mlock). Only if you have free RAM for the whole model. |
-| **Parallel** | Requests handled at once: **Auto** (llama.cpp default), 1, 2 or 4. **1** suits one user with one app; choose more if several apps or people use the server (Open WebUI, for example, sends title requests in parallel). With 2+, every request still gets the full context. |
+| **Parallel** | Requests handled at once: **1** (default), **Auto** (llama.cpp decides, usually 4), 2 or 4. **1** is fastest for one user and uses the least memory, especially with MTP; extra requests wait their turn. Choose more if several apps or people use the server (Open WebUI, for example, sends title requests in parallel). With 2+, every request still gets the full context. |
 | **MTP** | Multi-token prediction. LlamaMate reads the model's GGUF header; when the model ships MTP heads it turns on speculative decoding (`--spec-type draft-mtp`, 4 draft tokens, adjustable 2–6). Often about **2× faster** generation with identical output. The row shows **✓ model has MTP** or **no MTP heads**. |
 
 ### Network tab
